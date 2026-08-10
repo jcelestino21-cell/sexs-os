@@ -2095,7 +2095,12 @@ router.post('/api/admin/add-old-products', requireAuth(async (req, res) => {
 
 // Catálogo público de produtos
 router.get('/catalogo', (req, res) => {
-  res.sendFile(__dirname + '/public/catalogo.html');
+  const fs = require('fs');
+  const path = require('path');
+  const catalogoPath = path.join(__dirname, 'public', 'catalogo.html');
+  const html = fs.readFileSync(catalogoPath, 'utf8');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(html);
 });
 
 router.get('/app', async (req, res) => {
