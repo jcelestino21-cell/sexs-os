@@ -1248,7 +1248,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  if (pathname.startsWith('/api/') || pathname === '/health' || pathname === '/healthz' || pathname === '/ready') {
+  if (pathname.startsWith('/api/') || pathname === '/health' || pathname === '/healthz' || pathname === '/ready' || pathname === '/catalogo' || pathname === '/app') {
     let match = router.match(req.method, pathname);
 
     // FASE 10.5 — Fallback: se a rota só existe como POST mas chegou como GET
