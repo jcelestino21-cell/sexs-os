@@ -1800,6 +1800,15 @@ router.post('/api/admin/fix-closed-kit', requireAuth(async (req, res) => {
 }, { roles: ['ceo'] }));
 
 // ADMIN: Reject all sales for specific kit_items (for items that were returned, not sold)
+// ADMIN: List all sales for a kit (debug)
+router.get('/api/admin/kit-sales/:kitId', requireAuth(async (req, res, params) => {
+  try {
+    const kitId = Number(params.kitId);
+    const sales = db.prepare("SELECT ks.*, ki.product_id, p.name as product_name FROM kit_sales ks JOIN kit_items ki ON ki.id = ks.kit_item_id JOIN products p ON p.id = ki.product_id WHERE ki.kit_id = ? ORDER BY ks.id").all(kitId);
+    sendJson(res, 200, { sales });
+  } catch(e) { sendJson(res, 400, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/reject-kit-item-sales', requireAuth(async (req, res) => {
   try {
     const body = await readJsonBody(req);
