@@ -1226,8 +1226,8 @@ async function renderPortalSales() {
       tableHtml = '<div style="overflow-x:auto"><table style="width:100%;font-size:13px">' +
         '<tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Preço</th><th style="text-align:right">Total</th><th>Status</th></tr>';
       sales.forEach(function(sale) {
-        var statusColors = {informada:'#ffa500', confirmada:'#4ade80', rejeitada:'#ff6b6b'};
-        var statusLabels = {informada:'⏳ Informada', confirmada:'✅ Confirmada', rejeitada:'❌ Rejeitada'};
+        var statusColors = {informada:'#ffa500', confirmada:'#4ade80', rejeitada:'#3b82f6'};
+        var statusLabels = {informada:'⏳ Informada', confirmada:'✅ Confirmada', rejeitada:'📦 Devolução'};
         var total = sale.quantity * (sale.unit_price_cents||0);
         tableHtml += '<tr><td>' + esc(sale.product_name) + '</td>' +
           '<td style="text-align:center;font-weight:600">' + sale.quantity + '</td>' +
