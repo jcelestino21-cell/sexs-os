@@ -2309,7 +2309,8 @@ module.exports = server;
 // ADMIN: Update product images
 router.post('/api/admin/update-product-images', requireAuth(async (req, res) => {
   try {
-    const { updates } = req.body; // Array de {product_id, photo_url}
+    const body = await readJsonBody(req);
+    const { updates } = body; // Array de {product_id, photo_url}
     
     if (!updates || !Array.isArray(updates)) {
       return sendJson(res, 400, { error: 'updates deve ser um array' });
