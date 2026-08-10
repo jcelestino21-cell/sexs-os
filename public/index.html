@@ -572,12 +572,12 @@ async function renderKits() {
         else if (k.status === 'aprovado') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button><button class="reject" onclick="kitAction('+k.id+',\'cancel\')">Cancelar</button></div>';
         else if (k.status === 'em_preparacao') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button></div>';
         else if (k.status === 'entregue') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'request-closure\')">Solicitar fechamento</button></div>';
-        else if (k.status === 'aguardando_fechamento') actions = '<div class="pa"><button class="approve" onclick="finalizeAllReconciliations('+k.id+')">\u2705 Finalizar Confer\u00eancias</button><button class="approve" style="background:#28a745;margin-left:8px" onclick="approveClosure('+k.id+')">\ud83c\udfc1 Aprovar Fechamento</button></div><button class="reject" style="margin-left:8px" onclick="forceCloseKit('+k.id+')">⚡ Forçar Fechamento</button></div>';
+        else if (k.status === 'aguardando_fechamento') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="finalizeAndClose('+k.id+')">✅ Conferir e Fechar</button><button class="reject" onclick="forceCloseKit('+k.id+')">⚡ Forçar</button></div>';
 
         kitsHtml += '<div class="kit-card"><span class="pill">' + (statusLabels[k.status]||k.status) + '</span>' +
           '<h3>Kit #' + k.id + ' — ' + esc(k.reseller_name||'') + ' (ciclo ' + k.cycle_number + ')</h3>' +
           '<div style="font-size:12px;color:var(--t3)">criado em ' + esc(k.created_at||'') + '</div>' +
-          actions + '</div>';
+          actions + '<div id="kit-details-' + k.id + '" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--bd)"></div>' + '</div>';
       });
     } else {
       kitsHtml = '<div class="panel"><div class="empty">Nenhum kit ainda. Sugira o primeiro acima! 📦</div></div>';
@@ -649,6 +649,73 @@ async function approveClosure(kitId) {
   } catch(e) { toast('Erro: ' + e.message); }
 }
 
+async function toggleKitDetails(kitId) {
+  var div = document.getElementById('kit-details-' + kitId);
+  if (!div) return;
+  if (div.style.display === 'none') {
+    div.style.display = 'block';
+    div.innerHTML = '<div style="color:var(--t3);font-size:13px">Carregando itens...</div>';
+    try {
+      var data = await api('/api/kits/' + kitId);
+      var kit = data.kit || data;
+      var items = kit.items || [];
+      var totalSold = 0, totalReturned = 0;
+      var html = '<div style="font-size:12px;color:var(--t2);margin-bottom:12px">' + items.length + ' tipos de produtos</div>';
+      html += '<table style="width:100%;font-size:12px"><tr><th style="text-align:left">Produto</th><th style="text-align:center">Entregue</th><th style="text-align:center;color:#4ade80">Vendido</th><th style="text-align:center;color:#ffa500">Devolver</th><th style="text-align:right">Preço</th><th style="text-align:right">Subtotal</th></tr>';
+      items.forEach(function(item) {
+        var sold = (item.quantity_pending_closure || 0) + (item.quantity_confirmed_sold || 0);
+        var avail = item.quantity_available || 0;
+        var price = (item.unit_sale_price_cents || 0) / 100;
+        var subtotal = sold * price;
+        totalSold += subtotal;
+        totalReturned += avail * price;
+        var rowStyle = sold > 0 ? 'background:rgba(74,222,128,.05)' : (avail > 0 ? 'background:rgba(255,165,0,.05)' : '');
+        html += '<tr style="' + rowStyle + '">';
+        html += '<td style="font-weight:500">' + (item.product_name || '?') + '</td>';
+        html += '<td style="text-align:center">' + (item.quantity_delivered || 0) + '</td>';
+        html += '<td style="text-align:center;color:#4ade80;font-weight:600">' + sold + '</td>';
+        html += '<td style="text-align:center;color:#ffa500;font-weight:600">' + avail + '</td>';
+        html += '<td style="text-align:right">R$ ' + price.toFixed(2) + '</td>';
+        html += '<td style="text-align:right;font-weight:600">R$ ' + subtotal.toFixed(2) + '</td>';
+        html += '</tr>';
+      });
+      html += '</table>';
+      var commission = kit.reseller ? kit.reseller.commission_pct : 0.3;
+      var commissionValue = totalSold * commission;
+      html += '<div style="margin-top:16px;padding:12px;background:var(--p3);border-radius:8px;font-size:13px">';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Total vendido:</span><b style="color:#4ade80">R$ ' + totalSold.toFixed(2) + '</b></div>';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Comissão (' + Math.round(commission*100) + '%):</span><b style="color:var(--ac)">R$ ' + commissionValue.toFixed(2) + '</b></div>';
+      html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Valor devido à SexS:</span><b>R$ ' + (totalSold - commissionValue).toFixed(2) + '</b></div>';
+      html += '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--bd);padding-top:4px;margin-top:4px"><span>Itens para devolução:</span><b style="color:#ffa500">' + items.reduce(function(s,i){return s+(i.quantity_available||0)},0) + ' un (R$ ' + totalReturned.toFixed(2) + ')</b></div>';
+      html += '</div>';
+      div.innerHTML = html;
+    } catch(e) {
+      div.innerHTML = '<div style="color:var(--dg)">Erro: ' + e.message + '</div>';
+    }
+  } else {
+    div.style.display = 'none';
+  }
+}
+
+async function finalizeAndClose(kitId) {
+  if (!confirm('Isso vai conferir todos os itens e fechar o kit. Itens marcados como vendidos pela revendedora serão confirmados e o restante será devolvido ao estoque. Continuar?')) return;
+  try {
+    toast('Conferindo e fechando kit...', 'ok');
+    await api('/api/kits/' + kitId + '/force-close', {method:'POST', body:'{}'});
+    toast('Kit fechado com sucesso! ✅', 'ok');
+    renderKits();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
+async function forceCloseKit(kitId) {
+  if (!confirm('Forçar fechamento do kit? Isso vai confirmar todas as vendas e fechar o kit. Continuar?')) return;
+  try {
+    await api('/api/kits/' + kitId + '/force-close', {method:'POST', body:'{}'});
+    toast('Kit fechado com sucesso!', 'ok');
+    renderKits();
+  } catch(e) { toast('Erro: ' + e.message); }
+}
+
 // ===== PEDIDOS DAS REVENDEDORAS =====
 async function renderOrders() {
   var v = $('#v-orders'); if(!v) return;
@@ -664,14 +731,7 @@ async function renderOrders() {
       v.innerHTML = '<div class="panel"><div class="empty">Nenhum pedido das revendedoras ainda. 📋<br><br>As revendedoras fazem pedidos pelo portal delas na aba "Pedidos".</div></div>';
     }
 
-async function forceCloseKit(kitId) {
-  if (!confirm('Isso vai fechar o kit automaticamente, confirmando todas as vendas e conferências. Continuar?')) return;
-  try {
-    await api('/api/kits/' + kitId + '/force-close', {method:'POST', body:'{}'});
-    toast('Kit fechado com sucesso!', 'ok');
-    renderKits();
-  } catch(e) { toast('Erro: ' + e.message); }
-}
+
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
 }
 

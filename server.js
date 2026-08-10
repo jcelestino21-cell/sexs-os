@@ -696,21 +696,18 @@ router.post('/api/kits/:id/force-close', requireAuth(async (req, res, params) =>
     }
     
     // Create/finalize ALL reconciliation items for this kit
+    // Use pending_closure as sold (what reseller reported) and available as returned
     const kitItems = db.prepare("SELECT * FROM kit_items WHERE kit_id = ?").all(kitId);
     for (const ki of kitItems) {
+      const soldQty = ki.quantity_pending_closure + ki.quantity_confirmed_sold;
+      const returnedQty = ki.quantity_available;
       const existing = db.prepare("SELECT * FROM kit_item_reconciliations WHERE kit_item_id = ?").get(ki.id);
       if (existing) {
-        // Update existing: finalize with current values or assume sold=delivered
-        const sold = existing.quantity_sold_confirmed || 0;
-        const returned = existing.quantity_returned || 0;
-        const finalSold = (sold === 0 && returned === 0) ? ki.quantity_delivered : sold;
-        const finalReturned = (sold === 0 && returned === 0) ? 0 : returned;
         db.prepare("UPDATE kit_item_reconciliations SET quantity_sold_confirmed = ?, quantity_returned = ?, finalized = 1, updated_at = datetime('now') WHERE id = ?")
-          .run(finalSold, finalReturned, existing.id);
+          .run(soldQty, returnedQty, existing.id);
       } else {
-        // Create new: assume all delivered items were sold
-        db.prepare("INSERT INTO kit_item_reconciliations (kit_id, kit_item_id, quantity_sold_confirmed, quantity_returned, finalized, created_by) VALUES (?,?,?,0,1,?)")
-          .run(kitId, ki.id, ki.quantity_delivered, CEO_ID);
+        db.prepare("INSERT INTO kit_item_reconciliations (kit_id, kit_item_id, quantity_sold_confirmed, quantity_returned, finalized, created_by) VALUES (?,?,?,?,1,?)")
+          .run(kitId, ki.id, soldQty, returnedQty, CEO_ID);
       }
     }
     
