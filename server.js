@@ -2306,6 +2306,29 @@ server.listen(PORT, '0.0.0.0', async () => {
 
 module.exports = server;
 
+// ADMIN: Update product images
+router.post('/api/admin/update-product-images', requireAuth(async (req, res) => {
+  try {
+    const { updates } = req.body; // Array de {product_id, photo_url}
+    
+    if (!updates || !Array.isArray(updates)) {
+      return sendJson(res, 400, { error: 'updates deve ser um array' });
+    }
+    
+    let updatedCount = 0;
+    for (const update of updates) {
+      const result = db.prepare(
+        "UPDATE products SET photo_url = ? WHERE id = ?"
+      ).run(update.photo_url, update.product_id);
+      updatedCount += result.changes;
+    }
+    
+    sendJson(res, 200, { ok: true, updated_count: updatedCount });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 // PUBLIC: Catalog endpoint (no auth required)
 router.get('/api/public/catalog', (req, res) => {
   try {
