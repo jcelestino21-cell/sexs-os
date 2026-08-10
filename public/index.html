@@ -346,7 +346,7 @@ async function renderApp() {
     if (can('kits:read')) tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('financial:read')) tabs.push({k:'financial',l:'💰 Financeiro'});
     if (can('stock:read')) tabs.push({k:'stock',l:'📦 Estoque'});
-    if (S.user.role === 'ceo') tabs.push({k:'kitdetails',l:'📋 Kits Detalhado'});
+    
     if (S.user.role === 'ceo') tabs.push({k:'resellerMsgs',l:'💬 Recados'});
     if (S.user.role === 'ceo') tabs.push({k:'audit',l:'Auditoria'});
 
@@ -546,12 +546,17 @@ async function renderKits() {
     ]);
     
     var suggestHtml = '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">📦 Sugerir novo kit</div>' +
-      '<div class="row" style="gap:12px">' +
-      '<select id="kitRes" style="min-width:160px">' + resData.resellers.map(function(r){return '<option value="'+r.id+'">'+esc(r.name)+'</option>';}).join('') + '</select>' +
-      '<select id="kitProd" style="min-width:200px">' + prodData.products.map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+' (disp. '+p.available_balance+')</option>';}).join('') + '</select>' +
-      '<input id="kitQty" type="number" min="1" placeholder="qtd" style="width:80px" />' +
-      '<button class="btn-s" onclick="suggestKit()">Sugerir kit</button>' +
-      '</div></div>';
+      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">Revendedora:</label>' +
+      '<select id="kitRes" style="width:100%;margin-top:4px">' + resData.resellers.map(function(r){return '<option value="'+r.id+'">'+esc(r.name)+'</option>';}).join('') + '</select></div>' +
+      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">Adicionar produto:</label>' +
+      '<div class="row" style="gap:8px;margin-top:4px">' +
+      '<select id="kitProd" style="flex:1">' + prodData.products.map(function(p){return '<option value="'+p.id+'" data-price="'+p.sale_price_cents+'">'+esc(p.name)+' (disp. '+p.available_balance+')</option>';}).join('') + '</select>' +
+      '<input id="kitQty" type="number" min="1" placeholder="qtd" style="width:80px" value="1" />' +
+      '<button class="btn-s" onclick="addToKit()">+ Adicionar</button>' +
+      '</div></div>' +
+      '<div id="kitItemsList" style="margin-bottom:12px"></div>' +
+      '<button class="btn-s" onclick="suggestKit()" style="width:100%">Criar Kit</button>' +
+      '</div>';
 
     var statusLabels = {sugerido:'⏳ Sugerido',aprovado:'✅ Aprovado',em_preparacao:'📦 Em preparação',entregue:'🚚 Entregue',aguardando_fechamento:'📋 Aguardando fechamento',encerrado:'🏁 Encerrado',rejeitado:'❌ Rejeitado'};
     
@@ -589,18 +594,74 @@ async function renderKits() {
     }
 
     v.innerHTML = suggestHtml + kitsHtml;
+    renderKitItemsList();
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
 }
 
-async function suggestKit() {
+var kitItems = [];
+
+function addToKit() {
+  var prodSelect = $('#kitProd');
   var qty = Number($('#kitQty').value);
   if (!qty || qty < 1) return toast('Informe a quantidade.');
+  
+  var productId = Number(prodSelect.value);
+  var productName = prodSelect.options[prodSelect.selectedIndex].text.split(' (disp.')[0];
+  var price = Number(prodSelect.options[prodSelect.selectedIndex].getAttribute('data-price'));
+  
+  // Verificar se já existe
+  var existing = kitItems.find(i => i.product_id === productId);
+  if (existing) {
+    existing.quantity += qty;
+  } else {
+    kitItems.push({ product_id: productId, product_name: productName, quantity: qty, price: price });
+  }
+  
+  renderKitItemsList();
+  $('#kitQty').value = '1';
+}
+
+function removeFromKit(index) {
+  kitItems.splice(index, 1);
+  renderKitItemsList();
+}
+
+function renderKitItemsList() {
+  var container = $('#kitItemsList');
+  if (!container) return;
+  
+  if (kitItems.length === 0) {
+    container.innerHTML = '<div style="color:var(--t3);font-size:12px;text-align:center;padding:8px">Nenhum produto adicionado</div>';
+    return;
+  }
+  
+  var total = kitItems.reduce((sum, i) => sum + (i.quantity * i.price / 100), 0);
+  var html = '<div style="border:1px solid var(--border);border-radius:4px;padding:8px;background:var(--bg-secondary)">';
+  html += '<div style="font-size:12px;color:var(--t2);margin-bottom:8px"><strong>Produtos no kit (' + kitItems.length + '):</strong></div>';
+  
+  kitItems.forEach(function(item, index) {
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">';
+    html += '<div style="flex:1;font-size:13px">' + esc(item.product_name) + ' <span style="color:var(--t3)">x' + item.quantity + '</span></div>';
+    html += '<div style="font-size:12px;color:var(--t2);margin-right:8px">R$ ' + (item.quantity * item.price / 100).toFixed(2) + '</div>';
+    html += '<button onclick="removeFromKit(' + index + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px">×</button>';
+    html += '</div>';
+  });
+  
+  html += '<div style="margin-top:8px;text-align:right;font-size:13px"><strong>Total: R$ ' + total.toFixed(2) + '</strong></div>';
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+async function suggestKit() {
+  if (kitItems.length === 0) return toast('Adicione pelo menos um produto ao kit.');
+  
   try {
     await api('/api/kits/suggest', {method:'POST', body:JSON.stringify({
       reseller_id: Number($('#kitRes').value),
-      items: [{product_id: Number($('#kitProd').value), quantity: qty}]
+      items: kitItems.map(i => ({ product_id: i.product_id, quantity: i.quantity }))
     })});
     toast('Kit sugerido! Agora aprove na lista abaixo.', 'ok');
+    kitItems = [];
     renderKits();
   } catch(e) { toast(e.message); }
 }
