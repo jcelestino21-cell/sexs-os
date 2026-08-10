@@ -2307,9 +2307,9 @@ server.listen(PORT, '0.0.0.0', async () => {
 module.exports = server;
 
 // ADMIN: Get kit closure details
-router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res) => {
+router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res, params) => {
   try {
-    const kitId = Number(req.params.kitId);
+    const kitId = Number(params.kitId);
     const closure = db.prepare('SELECT * FROM kit_closures WHERE kit_id = ?').get(kitId);
     if (!closure) {
       return sendJson(res, 404, { error: 'Fechamento não encontrado' });
