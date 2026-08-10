@@ -1963,7 +1963,7 @@ router.get('/api/portal/catalog', requireReseller((req, res) => {
         p.category,
         p.description,
         ki.unit_sale_price_cents,
-        p.available_balance
+        ki.quantity_available as available_balance
       FROM products p
       JOIN kit_items ki ON ki.product_id = p.id
       JOIN kits k ON k.id = ki.kit_id
