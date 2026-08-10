@@ -2315,10 +2315,11 @@ router.get('/api/public/catalog', (req, res) => {
         p.name,
         p.category,
         p.description,
-        p.image_url,
-        p.available_balance as availability,
-        p.sale_price_cents,
-        p.last_purchase_cost_cents
+        p.photo_url,
+        p.ideal_price_cents,
+        p.last_purchase_cost_cents,
+        COALESCE((SELECT SUM(quantity) FROM stock_movements WHERE product_id = p.id), 0) as physical_balance,
+        COALESCE((SELECT SUM(quantity) FROM stock_reservations WHERE product_id = p.id AND status = 'ativa'), 0) as reserved
       FROM products p
       WHERE p.active = 1
       ORDER BY p.category, p.name
@@ -2328,10 +2329,10 @@ router.get('/api/public/catalog', (req, res) => {
     const catalog = products.map(p => ({
       name: p.name,
       description: p.description || '',
-      image_url: p.image_url || '',
+      image_url: p.photo_url || '',
       category: p.category || 'Outros',
-      availability: p.availability || 0,
-      price_cents: p.sale_price_cents || 0,
+      availability: (p.physical_balance - p.reserved) || 0,
+      price_cents: p.ideal_price_cents || 0,
       specs: []
     }));
 
