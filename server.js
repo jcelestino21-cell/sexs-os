@@ -1750,19 +1750,12 @@ router.post('/api/admin/fix-closed-kit', requireAuth(async (req, res) => {
       db.prepare("UPDATE kit_items SET quantity_confirmed_sold = ?, quantity_returned = ?, quantity_available = 0, quantity_pending_closure = 0 WHERE id = ?")
         .run(correctSold, correctReturned, ki.id);
       
-      // Return items to stock
+      // Return items to stock (via stock_movements only - physical_balance is computed)
       if (returnedDiff > 0) {
-        const product = db.prepare("SELECT * FROM products WHERE id = ?").get(ki.product_id);
-        if (product) {
-          const currentBalance = product.physical_balance || 0;
-          const newBalance = currentBalance + returnedDiff;
-          db.prepare("UPDATE products SET physical_balance = ?, available_balance = available_balance + ? WHERE id = ?")
-            .run(newBalance, returnedDiff, ki.product_id);
-          db.prepare("INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)")
-            .run(ki.product_id, 'entrada_ajuste', returnedDiff, newBalance,
-              `Correção fechamento kit #${kitId}: ${returnedDiff}un devolvidas (não vendidas)`, req.user.id);
-          totalReturnedToStock += returnedDiff;
-        }
+        db.prepare("INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)")
+          .run(ki.product_id, 'entrada_devolucao', returnedDiff, 0,
+            `Correção fechamento kit #${kitId}: ${returnedDiff}un devolvidas (não vendidas)`, req.user.id);
+        totalReturnedToStock += returnedDiff;
       }
       
       totalSoldCents += correctSold * ki.unit_sale_price_cents;
