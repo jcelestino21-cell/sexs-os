@@ -1,0 +1,46 @@
+# SexS OS — Configuração de deploy para Fly.io
+# Documentação: https://fly.io/docs/reference/configuration/
+
+app = "sexs-os"
+primary_region = "gru"  # São Paulo — latência mínima para o Brasil
+
+# Servidor web (Node.js)
+[build]
+  # Usa o Dockerfile que já existe no projeto
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+
+# Porta que o Fly.io vai expor publicamente
+[http_service]
+  internal_port = 3000
+  force_https = true            # Redireciona HTTP → HTTPS automaticamente
+  auto_stop_machines = "stop"   # Desliga a máquina quando ninguém usa (economiza créditos)
+  auto_start_machines = true    # Liga automaticamente quando alguém acessa
+  min_machines_running = 0      # No plano free, pode desligar quando ocioso
+
+# Health check — Fly.io verifica se o sistema está vivo
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"
+
+# Volume persistente para o banco SQLite
+# ⚠️ CRIAR ANTES DO DEPLOY com: fly volumes create sexsos_data --region gru --size 1
+[mounts]
+  source = "sexsos_data"
+  destination = "/app/data"
+
+# Recursos da máquina (plano free: shared-cpu-1x, 256MB RAM)
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
+
+# Statics — serve arquivos estáticos direto pelo proxy do Fly (mais rápido)
+[[statics]]
+  guest_path = "/app/public"
+  url_prefix = "/static"

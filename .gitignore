@@ -1,0 +1,37 @@
+# Dependências
+node_modules/
+
+# Banco de dados (nunca versionar dados reais)
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Variáveis de ambiente (NUNCA versionar segredos)
+.env
+
+# Logs
+*.log
+logs/
+
+# Backups locais
+data/backups/
+
+# Arquivos de estado antes de restaurar
+*.antes-de-restaurar-*
+
+# IDE e editores
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cobertura e cache
+.coverage
+.nyc_output/

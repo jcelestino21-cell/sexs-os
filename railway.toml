@@ -1,0 +1,14 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "node server.js"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+# Variáveis padrão (podem ser sobrescritas no painel da Railway)
+[deploy.env]
+NODE_ENV = "production"
+PORT = "3000"

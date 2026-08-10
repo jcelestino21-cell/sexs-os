@@ -1,0 +1,30 @@
+{
+  "name": "sexs-os",
+  "version": "1.1.0",
+  "description": "Sistema Operacional Empresarial para a SexS — gestão de estoque, revendedoras, kits consignados, financeiro e equipe executiva via linguagem natural.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed.js",
+    "setup-company": "node scripts/setup-company.js",
+    "backup": "node scripts/backup.js",
+    "restore": "node scripts/restore.js",
+    "test": "node --test tests/",
+    "health": "curl -s http://localhost:3000/health | node -e \"process.stdin.on('data',d=>console.log(JSON.parse(d)))\""
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "docx": "^9.6.1"
+  },
+  "keywords": [
+    "erp",
+    "sexshop",
+    "consignado",
+    "gestao"
+  ],
+  "author": "",
+  "license": "ISC"
+}

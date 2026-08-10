@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: sexs-os
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3000"
+      - key: BACKUP_EMAIL
+        value: sexssexshop@gmail.com
+    disk:
+      name: sexs-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

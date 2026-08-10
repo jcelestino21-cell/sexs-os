@@ -1,0 +1,15 @@
+# Não incluir na imagem Docker:
+node_modules/
+data/
+.env
+*.db
+*.db-journal
+*.db-wal
+.git/
+.gitignore
+tests/
+scripts/ui-check.js
+*.md
+.env.example
+CORRECOES_FASE_10_5.md
+GUIA_DEPLOY.md
