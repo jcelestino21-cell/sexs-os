@@ -1853,6 +1853,29 @@ router.post('/api/admin/force-reject-sales', requireAuth(async (req, res) => {
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Update unit_sale_price_cents for kit items
+router.post('/api/admin/update-kit-item-prices', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const updates = body.updates; // [{kit_item_id, unit_sale_price_cents}]
+    
+    if (!updates || !Array.isArray(updates)) {
+      return sendJson(res, 400, { error: 'updates must be an array' });
+    }
+    
+    let updatedCount = 0;
+    for (const u of updates) {
+      const result = db.prepare("UPDATE kit_items SET unit_sale_price_cents = ? WHERE id = ?")
+        .run(Number(u.unit_sale_price_cents), Number(u.kit_item_id));
+      updatedCount += result.changes;
+    }
+    
+    sendJson(res, 200, { ok: true, updated_count: updatedCount });
+  } catch(e) { 
+    sendJson(res, 400, { error: e.message }); 
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/bulk-add-products', requireAuth(async (req, res) => {
   try {
     const products = await readJsonBody(req);
