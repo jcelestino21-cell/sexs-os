@@ -2326,7 +2326,7 @@ router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res, params) => {
         ki.quantity_returned,
         ki.unit_sale_price_cents,
         COALESCE((
-          SELECT SUM(quantity * unit_cost_cents) / NULLIF(SUM(quantity), 0)
+          SELECT SUM(quantity_purchased * unit_cost_cents) / NULLIF(SUM(quantity_purchased), 0)
           FROM stock_lots
           WHERE product_id = ki.product_id
         ), 0) as avg_cost_cents
