@@ -1750,6 +1750,13 @@ router.post('/api/admin/fix-closed-kit', requireAuth(async (req, res) => {
       db.prepare("UPDATE kit_items SET quantity_confirmed_sold = ?, quantity_returned = ?, quantity_available = 0, quantity_pending_closure = 0 WHERE id = ?")
         .run(correctSold, correctReturned, ki.id);
       
+      // Also update kit_item_reconciliations
+      const recon = db.prepare("SELECT id FROM kit_item_reconciliations WHERE kit_item_id = ?").get(ki.id);
+      if (recon) {
+        db.prepare("UPDATE kit_item_reconciliations SET quantity_sold_confirmed = ?, quantity_returned = ?, finalized = 1, updated_at = datetime('now') WHERE id = ?")
+          .run(correctSold, correctReturned, recon.id);
+      }
+      
       // Return items to stock (via stock_movements only - physical_balance is computed)
       if (returnedDiff > 0) {
         db.prepare("INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)")
