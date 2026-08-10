@@ -1876,6 +1876,28 @@ router.post('/api/admin/update-kit-item-prices', requireAuth(async (req, res) =>
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Delete expenses by IDs
+router.post('/api/admin/delete-expenses', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const ids = body.ids; // Array of expense IDs to delete
+    
+    if (!ids || !Array.isArray(ids)) {
+      return sendJson(res, 400, { error: 'ids must be an array' });
+    }
+    
+    let deletedCount = 0;
+    for (const id of ids) {
+      const result = db.prepare("DELETE FROM expenses WHERE id = ?").run(Number(id));
+      deletedCount += result.changes;
+    }
+    
+    sendJson(res, 200, { ok: true, deleted_count: deletedCount });
+  } catch(e) { 
+    sendJson(res, 400, { error: e.message }); 
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/bulk-add-products', requireAuth(async (req, res) => {
   try {
     const products = await readJsonBody(req);
