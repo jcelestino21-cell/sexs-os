@@ -401,6 +401,7 @@ async function renderDashboard() {
     var d = data.dashboard; var f = d.financial;
     v.innerHTML = '<div class="dg">' +
       '<div class="dc accent"><div class="label">Lucro líquido</div><div class="value">'+fmt(f.lucro_liquido_cents)+'</div></div>' +
+      '<div class="dc"><div class="label">Custo (COGS)</div><div class="value">'+fmt(f.custo_mercadorias_vendidas_cents)+'</div><div class="sub">Caixa para reinvestir</div></div>' +
       '<div class="dc"><div class="label">Pendências</div><div class="value">'+d.pending_proposals_count+'</div></div>' +
       '<div class="dc"><div class="label">Revendedoras</div><div class="value">'+d.active_resellers+'</div><div class="sub">de '+d.total_resellers+'</div></div>' +
       '<div class="dc"><div class="label">Vendas hoje</div><div class="value">'+d.today.sales_today_count+'</div><div class="sub">'+fmt(d.today.revenue_informed_today_cents)+'</div></div>' +
