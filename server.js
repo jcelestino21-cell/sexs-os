@@ -2345,6 +2345,30 @@ router.post('/api/admin/update-product-images', requireAuth(async (req, res) => 
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Update product names
+router.post('/api/admin/update-product-names', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const { updates } = body; // Array de {product_id, name}
+    
+    if (!updates || !Array.isArray(updates)) {
+      return sendJson(res, 400, { error: 'updates deve ser um array' });
+    }
+    
+    let updatedCount = 0;
+    for (const update of updates) {
+      const result = db.prepare(
+        "UPDATE products SET name = ? WHERE id = ?"
+      ).run(update.name, update.product_id);
+      updatedCount += result.changes;
+    }
+    
+    sendJson(res, 200, { ok: true, updated_count: updatedCount });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 // PUBLIC: Catalog endpoint (no auth required)
 router.get('/api/public/catalog', (req, res) => {
   try {
