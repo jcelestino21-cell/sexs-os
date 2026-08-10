@@ -2305,3 +2305,38 @@ server.listen(PORT, '0.0.0.0', async () => {
 });
 
 module.exports = server;
+
+// ADMIN: Get kit closure details
+router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res) => {
+  try {
+    const kitId = Number(req.params.kitId);
+    const closure = db.prepare('SELECT * FROM kit_closures WHERE kit_id = ?').get(kitId);
+    if (!closure) {
+      return sendJson(res, 404, { error: 'Fechamento não encontrado' });
+    }
+    
+    // Buscar itens do kit com custos
+    const items = db.prepare(`
+      SELECT 
+        ki.id,
+        ki.product_id,
+        p.name as product_name,
+        ki.quantity_delivered,
+        ki.quantity_confirmed_sold,
+        ki.quantity_returned,
+        ki.unit_sale_price_cents,
+        COALESCE((
+          SELECT SUM(quantity * unit_cost_cents) / NULLIF(SUM(quantity), 0)
+          FROM stock_lots
+          WHERE product_id = ki.product_id
+        ), 0) as avg_cost_cents
+      FROM kit_items ki
+      JOIN products p ON p.id = ki.product_id
+      WHERE ki.kit_id = ?
+    `).all(kitId);
+    
+    sendJson(res, 200, { closure, items });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
