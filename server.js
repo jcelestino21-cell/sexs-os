@@ -1799,6 +1799,29 @@ router.post('/api/admin/fix-closed-kit', requireAuth(async (req, res) => {
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Reject all sales for specific kit_items (for items that were returned, not sold)
+router.post('/api/admin/reject-kit-item-sales', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const kitItemIds = body.kit_item_ids;
+    
+    if (!kitItemIds || !Array.isArray(kitItemIds)) {
+      return sendJson(res, 400, { error: 'kit_item_ids must be an array' });
+    }
+    
+    let rejectedCount = 0;
+    
+    for (const kitItemId of kitItemIds) {
+      const result = db.prepare("UPDATE kit_sales SET status = 'rejeitada', decided_at = datetime('now') WHERE kit_item_id = ? AND status = 'confirmada'").run(kitItemId);
+      rejectedCount += result.changes;
+    }
+    
+    sendJson(res, 200, { ok: true, rejected_count: rejectedCount });
+  } catch(e) { 
+    sendJson(res, 400, { error: e.message }); 
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/bulk-add-products', requireAuth(async (req, res) => {
   try {
     const products = await readJsonBody(req);
