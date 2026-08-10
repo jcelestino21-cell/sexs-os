@@ -1831,6 +1831,28 @@ router.post('/api/admin/reject-kit-item-sales', requireAuth(async (req, res) => 
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Force reject confirmed sales (for correcting closed kits)
+router.post('/api/admin/force-reject-sales', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const saleIds = body.sale_ids; // Array of sale IDs to force reject
+    
+    if (!saleIds || !Array.isArray(saleIds)) {
+      return sendJson(res, 400, { error: 'sale_ids must be an array' });
+    }
+    
+    let rejectedCount = 0;
+    for (const saleId of saleIds) {
+      const result = db.prepare("UPDATE kit_sales SET status = 'rejeitada', decided_at = datetime('now') WHERE id = ?").run(saleId);
+      rejectedCount += result.changes;
+    }
+    
+    sendJson(res, 200, { ok: true, rejected_count: rejectedCount });
+  } catch(e) { 
+    sendJson(res, 400, { error: e.message }); 
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/bulk-add-products', requireAuth(async (req, res) => {
   try {
     const products = await readJsonBody(req);
