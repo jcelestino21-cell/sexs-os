@@ -1723,6 +1723,82 @@ router.post('/api/admin/adjust-stock', requireAuth(async (req, res) => {
 }, { roles: ['ceo'] }));
 
 // ADMIN: Bulk add products with cost and quantity
+
+// ADMIN: Fix a closed kit's item counts (correct sold vs returned)
+router.post('/api/admin/fix-closed-kit', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const kitId = Number(body.kit_id);
+    const corrections = body.corrections; // [{kit_item_id, correct_sold, correct_returned}]
+    
+    const kit = kitService.getKit(kitId);
+    if (!kit) return sendJson(res, 404, { error: 'Kit não encontrado' });
+    
+    let totalSoldCents = 0;
+    let totalReturnedToStock = 0;
+    
+    for (const corr of corrections) {
+      const ki = db.prepare("SELECT * FROM kit_items WHERE id = ? AND kit_id = ?").get(corr.kit_item_id, kitId);
+      if (!ki) continue;
+      
+      const correctSold = Number(corr.correct_sold);
+      const correctReturned = Number(corr.correct_returned);
+      const previousReturned = ki.quantity_returned;
+      const returnedDiff = correctReturned - previousReturned;
+      
+      // Update kit_items
+      db.prepare("UPDATE kit_items SET quantity_confirmed_sold = ?, quantity_returned = ?, quantity_available = 0, quantity_pending_closure = 0 WHERE id = ?")
+        .run(correctSold, correctReturned, ki.id);
+      
+      // Return items to stock
+      if (returnedDiff > 0) {
+        const product = db.prepare("SELECT * FROM products WHERE id = ?").get(ki.product_id);
+        if (product) {
+          const currentBalance = product.physical_balance || 0;
+          const newBalance = currentBalance + returnedDiff;
+          db.prepare("UPDATE products SET physical_balance = ?, available_balance = available_balance + ? WHERE id = ?")
+            .run(newBalance, returnedDiff, ki.product_id);
+          db.prepare("INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)")
+            .run(ki.product_id, 'entrada_ajuste', returnedDiff, newBalance,
+              `Correção fechamento kit #${kitId}: ${returnedDiff}un devolvidas (não vendidas)`, req.user.id);
+          totalReturnedToStock += returnedDiff;
+        }
+      }
+      
+      totalSoldCents += correctSold * ki.unit_sale_price_cents;
+    }
+    
+    // Update kit_closures
+    const commissionPct = kit.reseller ? kit.reseller.commission_pct : 0.3;
+    const commissionCents = Math.round(totalSoldCents * commissionPct);
+    const dueToSexs = totalSoldCents - commissionCents;
+    
+    let cogs = 0;
+    const allItems = db.prepare("SELECT ki.*, p.last_purchase_cost_cents FROM kit_items ki JOIN products p ON p.id = ki.product_id WHERE ki.kit_id = ?").all(kitId);
+    for (const item of allItems) {
+      cogs += (item.quantity_confirmed_sold || 0) * (item.last_purchase_cost_cents || 0);
+    }
+    const grossProfit = dueToSexs - cogs;
+    
+    const existingClosure = db.prepare("SELECT id FROM kit_closures WHERE kit_id = ?").get(kitId);
+    if (existingClosure) {
+      db.prepare("UPDATE kit_closures SET total_sold_confirmed_cents = ?, total_commission_cents = ?, total_due_to_sexs_cents = ?, cost_of_goods_sold_cents = ?, gross_profit_cents = ?, items_returned_to_stock = ? WHERE id = ?")
+        .run(totalSoldCents, commissionCents, dueToSexs, cogs, grossProfit, totalReturnedToStock, existingClosure.id);
+    }
+    
+    sendJson(res, 200, { 
+      ok: true, 
+      total_sold: totalSoldCents / 100,
+      commission: commissionCents / 100,
+      due_to_sexs: dueToSexs / 100,
+      returned_to_stock: totalReturnedToStock,
+      message: `Kit #${kitId} corrigido: ${corrections.length} itens ajustados, ${totalReturnedToStock} devolvidos ao estoque`
+    });
+  } catch(e) { 
+    sendJson(res, 400, { error: e.message }); 
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/bulk-add-products', requireAuth(async (req, res) => {
   try {
     const products = await readJsonBody(req);
