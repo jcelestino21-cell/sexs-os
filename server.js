@@ -2118,6 +2118,840 @@ router.get('/app', async (req, res) => {
   res.end(html);
 });
 
+// Catálogo público de produtos
+router.get('/catalogo', (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  res.end(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SexS — Catálogo Premium</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600;700&family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --preto-absoluto: #000000;
+            --preto-azulado: #0C0F14;
+            --grafite: #181C1F;
+            --rosa-sexs: #FF2F9D;
+            --rosa-claro: #EFA9C8;
+            --branco: #FFFFFF;
+            --cinza-secundario: #A8A8AD;
+            --rosa-glow: rgba(255, 47, 157, 0.15);
+            --rosa-glow-strong: rgba(255, 47, 157, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--preto-azulado);
+            color: var(--branco);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--preto-absoluto) 0%, var(--grafite) 100%);
+            padding: 60px 20px;
+            text-align: center;
+            border-bottom: 2px solid var(--rosa-sexs);
+            box-shadow: 0 4px 30px var(--rosa-glow);
+        }
+
+        .header h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 3.5em;
+            font-weight: 700;
+            color: var(--branco);
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+        }
+
+        .header .brand-accent {
+            color: var(--rosa-sexs);
+            text-shadow: 0 0 20px var(--rosa-glow-strong);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            color: var(--cinza-secundario);
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        .header .decorative {
+            font-family: 'Dancing Script', cursive;
+            color: var(--rosa-claro);
+            font-size: 1.3em;
+            margin-top: 15px;
+            font-style: italic;
+        }
+
+        /* Container */
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        /* Category Section */
+        .category {
+            margin-bottom: 60px;
+        }
+
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid var(--grafite);
+        }
+
+        .category-icon {
+            font-size: 2em;
+        }
+
+        .category-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 2em;
+            font-weight: 600;
+            color: var(--branco);
+        }
+
+        .category-description {
+            color: var(--cinza-secundario);
+            font-size: 0.95em;
+            margin-top: 5px;
+        }
+
+        /* Product Grid */
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 25px;
+        }
+
+        /* Product Card */
+        .product-card {
+            background: var(--grafite);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 47, 157, 0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .product-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--rosa-sexs);
+            box-shadow: 0 8px 30px var(--rosa-glow);
+        }
+
+        .product-image {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            background: var(--preto-absoluto);
+        }
+
+        .product-content {
+            padding: 20px;
+        }
+
+        .product-name {
+            font-family: 'DM Sans', sans-serif;
+            font-size: 1.1em;
+            font-weight: 600;
+            color: var(--branco);
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .product-description {
+            color: var(--cinza-secundario);
+            font-size: 0.9em;
+            line-height: 1.6;
+            margin-bottom: 15px;
+        }
+
+        .product-specs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .spec-tag {
+            background: rgba(255, 47, 157, 0.1);
+            color: var(--rosa-claro);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            border: 1px solid rgba(255, 47, 157, 0.2);
+        }
+
+        .product-cta {
+            display: block;
+            text-align: center;
+            background: linear-gradient(135deg, var(--rosa-sexs) 0%, #E91E63 100%);
+            color: var(--branco);
+            padding: 12px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+        }
+
+        .product-cta:hover {
+            transform: scale(1.02);
+            box-shadow: 0 4px 20px var(--rosa-glow-strong);
+        }
+
+        /* Reseller Section */
+        .reseller-section {
+            background: linear-gradient(135deg, var(--grafite) 0%, var(--preto-azulado) 100%);
+            padding: 60px 20px;
+            margin-top: 80px;
+            border-top: 2px solid var(--rosa-sexs);
+            border-bottom: 2px solid var(--rosa-sexs);
+        }
+
+        .reseller-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .reseller-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 2.5em;
+            text-align: center;
+            margin-bottom: 15px;
+            color: var(--branco);
+        }
+
+        .reseller-subtitle {
+            text-align: center;
+            color: var(--cinza-secundario);
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+
+        .reseller-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .reseller-card {
+            background: var(--preto-absoluto);
+            border: 1px solid rgba(255, 47, 157, 0.2);
+            border-radius: 12px;
+            padding: 25px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .reseller-card:hover {
+            border-color: var(--rosa-sexs);
+            box-shadow: 0 4px 20px var(--rosa-glow);
+            transform: translateY(-3px);
+        }
+
+        .reseller-avatar {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--rosa-sexs) 0%, var(--rosa-claro) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 15px;
+            font-size: 2em;
+            font-weight: 700;
+            color: var(--branco);
+            font-family: 'Playfair Display', serif;
+        }
+
+        .reseller-name {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: var(--branco);
+            margin-bottom: 8px;
+        }
+
+        .reseller-phone {
+            color: var(--cinza-secundario);
+            font-size: 0.95em;
+            margin-bottom: 15px;
+        }
+
+        .reseller-whatsapp {
+            display: inline-block;
+            background: #25D366;
+            color: var(--branco);
+            padding: 10px 25px;
+            border-radius: 25px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9em;
+            transition: all 0.3s ease;
+        }
+
+        .reseller-whatsapp:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(37, 211, 102, 0.4);
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--preto-absoluto);
+            padding: 40px 20px;
+            text-align: center;
+            border-top: 1px solid var(--grafite);
+        }
+
+        .footer-brand {
+            font-family: 'Playfair Display', serif;
+            font-size: 1.8em;
+            color: var(--rosa-sexs);
+            margin-bottom: 10px;
+        }
+
+        .footer-text {
+            color: var(--cinza-secundario);
+            font-size: 0.9em;
+        }
+
+        .footer-ceo {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--grafite);
+        }
+
+        .footer-ceo a {
+            color: var(--rosa-claro);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .footer-ceo a:hover {
+            color: var(--rosa-sexs);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2.5em;
+            }
+
+            .category-title {
+                font-size: 1.5em;
+            }
+
+            .product-grid {
+                grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+                gap: 20px;
+            }
+
+            .reseller-title {
+                font-size: 2em;
+            }
+        }
+
+        /* Decorative Elements */
+        .heart-accent {
+            color: var(--rosa-sexs);
+            font-size: 0.9em;
+        }
+
+        .glow-line {
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--rosa-sexs), transparent);
+            margin: 30px 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>Sex<span class="brand-accent">S</span></h1>
+        <p>CATÁLOGO PREMIUM DE PRODUTOS SENSUAIS</p>
+        <div class="decorative">Sensualidade • Elegância • Sofisticação</div>
+    </div>
+
+    <div class="container">
+        <!-- Géis Lubrificantes -->
+        <div class="category">
+            <div class="category-header">
+                <span class="category-icon">💧</span>
+                <div>
+                    <h2 class="category-title">Géis Lubrificantes</h2>
+                    <p class="category-description">Lubrificação e hidratação para momentos de prazer</p>
+                </div>
+            </div>
+
+            <div class="product-grid">
+                <!-- Pop Lub Gel Neutro -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17098975099625_thumb.jpg" alt="Pop Lub Gel Neutro" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Pop Lub Gel Corporal Neutro 60g</h3>
+                        <p class="product-description">Gel lubrificante corporal neutro desenvolvido para proporcionar sensação suave, natural e duradoura. Textura leve e transparente que cria deslizamento sedoso.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">60g</span>
+                            <span class="spec-tag">Sem aroma</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Gel Hot Menta -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395022760_thumb.jpg" alt="Gel Hot Menta" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Gel Hot Comestível 15ml — Menta</h3>
+                        <p class="product-description">Gel comestível sabor menta com efeito quente. Sensação refrescante que aquece os sentidos. Ideal para massagens sensuais pelo corpo todo.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Menta</span>
+                            <span class="spec-tag">15ml</span>
+                            <span class="spec-tag">Efeito quente</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Gel Hot Morango -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395007938_thumb.jpg" alt="Gel Hot Morango" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Gel Hot Comestível 15ml — Morango</h3>
+                        <p class="product-description">Gel comestível sabor morango com efeito quente. Sabor doce e aroma envolvente que desperta o paladar e a sensualidade.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Morango</span>
+                            <span class="spec-tag">15ml</span>
+                            <span class="spec-tag">Efeito quente</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Gel Hot Morango Champanhe -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395044863_thumb.jpg" alt="Gel Hot Morango Champanhe" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Gel Hot Comestível 15ml — Morango com Champanhe</h3>
+                        <p class="product-description">Gel comestível sabor morango com champanhe e efeito quente. Combinação clássica e excitante para o casal.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Morango Champanhe</span>
+                            <span class="spec-tag">15ml</span>
+                            <span class="spec-tag">Efeito quente</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Gel Hot Tutti Frutti -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395069721_thumb.jpg" alt="Gel Hot Tutti Frutti" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Gel Hot Comestível 15ml — Tutti Frutti</h3>
+                        <p class="product-description">Gel comestível sabor tutti frutti com efeito quente. Mistura irresistível de frutas com aquecimento que apimenta a brincadeira.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Tutti Frutti</span>
+                            <span class="spec-tag">15ml</span>
+                            <span class="spec-tag">Efeito quente</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Gel Hot Uva -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395056640_thumb.jpg" alt="Gel Hot Uva" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Gel Hot Comestível 15ml — Uva</h3>
+                        <p class="product-description">Gel comestível sabor uva com efeito quente. Sabor marcante e textura aveludada que hidrata a pele enquanto aquece.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Uva</span>
+                            <span class="spec-tag">15ml</span>
+                            <span class="spec-tag">Efeito quente</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glow-line"></div>
+
+        <!-- Bolinhas Beijáveis -->
+        <div class="category">
+            <div class="category-header">
+                <span class="category-icon">💫</span>
+                <div>
+                    <h2 class="category-title">Bolinhas Beijáveis</h2>
+                    <p class="category-description">Bolinhas que se dissolvem e liberam lubrificação, aroma e sensações únicas</p>
+                </div>
+            </div>
+
+            <div class="product-grid">
+                <!-- Pop Ball Chocolate -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458855423_thumb.jpg" alt="Pop Ball Chocolate" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Pop Ball Bolinha Lubrificante Beijável — Chocolate</h3>
+                        <p class="product-description">Bolinha gelatinosa sabor chocolate. Se dissolve ao toque liberando lubrificação natural, calor suave e aroma envolvente. Totalmente beijável.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Chocolate</span>
+                            <span class="spec-tag">2 unidades</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Pop Ball Frutas Vermelhas -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458889671_thumb.jpg" alt="Pop Ball Frutas Vermelhas" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Pop Ball Bolinha Lubrificante Beijável — Frutas Vermelhas</h3>
+                        <p class="product-description">Bolinha gelatinosa sabor frutas vermelhas. Proporciona lubrificação, aquecimento suave e aroma frutado irresistível.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Frutas Vermelhas</span>
+                            <span class="spec-tag">2 unidades</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Pop Ball Menta -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458859934_thumb.jpg" alt="Pop Ball Menta" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Pop Ball Bolinha Lubrificante Beijável — Menta</h3>
+                        <p class="product-description">Bolinha gelatinosa sabor menta. Se dissolve ao toque liberando lubrificação, calor e frescor. Ideal para preliminares refrescantes.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Menta</span>
+                            <span class="spec-tag">2 unidades</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Pop Ball Morango -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458842070_thumb.jpg" alt="Pop Ball Morango" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Pop Ball Bolinha Lubrificante Beijável — Morango</h3>
+                        <p class="product-description">Bolinha gelatinosa sabor morango. Lubrificação natural com calor suave e aroma adocicado. Perfeita para sexo oral e preliminares.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Morango</span>
+                            <span class="spec-tag">2 unidades</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Pop Ball Ice -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17597765221213_thumb.jpg" alt="Pop Ball Ice" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Pop Ball Bolinha Lubrificante Ice (Efeito Gelado)</h3>
+                        <p class="product-description">Bolinha gelatinosa com efeito Ice refrescante. Ao dissolver com o calor do corpo, libera óleo aromático com sensação gelada, lubrificante e hidratante.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Efeito Gelado</span>
+                            <span class="spec-tag">2 unidades</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Pop Ball Hot -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17597766956219_thumb.jpg" alt="Pop Ball Hot" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Pop Ball Bolinha Lubrificante Hot (Efeito Quente)</h3>
+                        <p class="product-description">Bolinha gelatinosa com efeito Hot de aquecimento. Ao dissolver com o calor do corpo, libera óleos essenciais aromáticos com efeito de aquecimento imediato.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Efeito Quente</span>
+                            <span class="spec-tag">2 unidades</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glow-line"></div>
+
+        <!-- Vibradores -->
+        <div class="category">
+            <div class="category-header">
+                <span class="category-icon">💫</span>
+                <div>
+                    <h2 class="category-title">Vibradores</h2>
+                    <p class="category-description">Estimulação do Ponto G, Clitóris e corpo todo</p>
+                </div>
+            </div>
+
+            <div class="product-grid">
+                <!-- Vibrador Golfinho Lilás -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17794512832637_thumb.jpg" alt="Vibrador Golfinho Lilás" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Vibrador Ponto G Golfinho Aveludado — Lilás</h3>
+                        <p class="product-description">Vibrador em formato de golfinho, super resistente, com ponta levemente curvada para estimular o ponto G.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Lilás</span>
+                            <span class="spec-tag">Ponto G</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Vibrador Golfinho Vermelho -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/17794512895505_thumb.jpg" alt="Vibrador Golfinho Vermelho" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Vibrador Ponto G Golfinho Aveludado — Vermelho</h3>
+                        <p class="product-description">Vibrador em formato de golfinho, super resistente, com ponta levemente curvada para estimular o ponto G.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Vermelho</span>
+                            <span class="spec-tag">Ponto G</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Vibrador Golfinho Roxo -->
+                <div class="product-card">
+                    <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/350177/Vibrador_Aveludado_Golfinho_Es_954.jpg?v=639142939538770000" alt="Vibrador Golfinho Roxo" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Vibrador Aveludado Golfinho Estimulador de Ponto G — Roxo</h3>
+                        <p class="product-description">Vibrador compacto e aveludado, ideal para estimular o Ponto G ou Clitóris. Textura macia e formato anatômico. Funciona com 1 pilha AA.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Roxo</span>
+                            <span class="spec-tag">12cm x 2,5cm</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glow-line"></div>
+
+        <!-- Anéis Penianos -->
+        <div class="category">
+            <div class="category-header">
+                <span class="category-icon">🍆</span>
+                <div>
+                    <h2 class="category-title">Anéis Penianos</h2>
+                    <p class="category-description">Auxiliam na manutenção da ereção e retardam a ejaculação</p>
+                </div>
+            </div>
+
+            <div class="product-grid">
+                <!-- Anel Peniano Bichinhos -->
+                <div class="product-card">
+                    <img src="https://static.cdnlive.com.br/uploads/487/unidade/16963621759981_thumb.jpg" alt="Anel Peniano Bichinhos" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Anel Peniano Vibrador Bichinhos — Transparente</h3>
+                        <p class="product-description">Anel peniano com vibração única e constante. Auxilia na manutenção da ereção e retarda a ejaculação. Bichinhos divertidos que vibram para o casal.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Transparente</span>
+                            <span class="spec-tag">Vibrador</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Anel Peniano Vibro -->
+                <div class="product-card">
+                    <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/302908/Anel_Peniano_Com_Vibro_Bichinh_860.png?v=638609862555270000" alt="Anel Peniano Vibro" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Anel Peniano com Vibro Bichinho</h3>
+                        <p class="product-description">Anel peniano com vibração que ajuda a retardar a ejaculação, fortalecer a ereção e dar mais prazer à parceira. Material TPR elástico, funciona com 2 baterias LR1130.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Diâmetro 2,5cm até 8cm</span>
+                            <span class="spec-tag">Vibrador</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glow-line"></div>
+
+        <!-- Lingeries -->
+        <div class="category">
+            <div class="category-header">
+                <span class="category-icon">👙</span>
+                <div>
+                    <h2 class="category-title">Lingeries</h2>
+                    <p class="category-description">Calcinhas tailandesas com regulagem para todos os gostos</p>
+                </div>
+            </div>
+
+            <div class="product-grid">
+                <!-- Calcinha Tailandesa Branco -->
+                <div class="product-card">
+                    <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/310594/Calcinha_Tailandesa_Com_Regula_106.jpg?v=638756793424700000" alt="Calcinha Tailandesa Branco" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Calcinha Tailandesa com Regulagem — Branco</h3>
+                        <p class="product-description">Calcinha com regulagem, modelagem fio, renda transparente e escrita provocante. Perfeita para casais ousados que gostam de inovar.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Branco</span>
+                            <span class="spec-tag">Com regulagem</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Calcinha Tailandesa Preto -->
+                <div class="product-card">
+                    <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/310596/Calcinha_Tailandesa_Com_Regula_904.jpg?v=638756793424870000" alt="Calcinha Tailandesa Preto" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Calcinha Tailandesa com Regulagem — Preto</h3>
+                        <p class="product-description">Calcinha preta com regulagem, modelagem fio, renda transparente e escrita provocante. Visual ousado e provocante.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Preto</span>
+                            <span class="spec-tag">Com regulagem</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+
+                <!-- Calcinha Tailandesa Vermelho -->
+                <div class="product-card">
+                    <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/310600/Calcinha_Tailandesa_Com_Regula_681.jpg?v=638756793425170000" alt="Calcinha Tailandesa Vermelho" class="product-image">
+                    <div class="product-content">
+                        <h3 class="product-name">Calcinha Tailandesa com Regulagem — Vermelho</h3>
+                        <p class="product-description">Calcinha vermelha com regulagem, modelagem fio, renda transparente e escrita provocante. A cor da paixão para noites inesquecíveis.</p>
+                        <div class="product-specs">
+                            <span class="spec-tag">Vermelho</span>
+                            <span class="spec-tag">Com regulagem</span>
+                        </div>
+                        <button class="product-cta">Verificar Disponibilidade</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Seção de Revendedoras -->
+    <div class="reseller-section">
+        <div class="reseller-container">
+            <h2 class="reseller-title">Nossas Revendedoras</h2>
+            <p class="reseller-subtitle">Fale com uma de nós para fazer seu pedido!</p>
+
+            <div class="reseller-grid">
+                <!-- Yasmin -->
+                <div class="reseller-card">
+                    <div class="reseller-avatar">Y</div>
+                    <div class="reseller-name">Yasmin</div>
+                    <div class="reseller-phone">📱 (16) 99443-6541</div>
+                    <a href="https://wa.me/5516994436541" class="reseller-whatsapp" target="_blank">
+                        💬 WhatsApp
+                    </a>
+                </div>
+
+                <!-- Flavia -->
+                <div class="reseller-card">
+                    <div class="reseller-avatar">F</div>
+                    <div class="reseller-name">Flavia</div>
+                    <div class="reseller-phone">📱 (16) 99418-1014</div>
+                    <a href="https://wa.me/5516994181014" class="reseller-whatsapp" target="_blank">
+                        💬 WhatsApp
+                    </a>
+                </div>
+
+                <!-- Larissa -->
+                <div class="reseller-card">
+                    <div class="reseller-avatar">L</div>
+                    <div class="reseller-name">Larissa</div>
+                    <div class="reseller-phone">📱 (16) 99401-9877</div>
+                    <a href="https://wa.me/5516994019877" class="reseller-whatsapp" target="_blank">
+                        💬 WhatsApp
+                    </a>
+                </div>
+
+                <!-- Taina -->
+                <div class="reseller-card">
+                    <div class="reseller-avatar">T</div>
+                    <div class="reseller-name">Taina</div>
+                    <div class="reseller-phone">📱 (16) 99398-0297</div>
+                    <a href="https://wa.me/5516993980297" class="reseller-whatsapp" target="_blank">
+                        💬 WhatsApp
+                    </a>
+                </div>
+
+                <!-- Luana -->
+                <div class="reseller-card">
+                    <div class="reseller-avatar">L</div>
+                    <div class="reseller-name">Luana</div>
+                    <div class="reseller-phone">📱 (16) 99355-6560</div>
+                    <a href="https://wa.me/5516993556560" class="reseller-whatsapp" target="_blank">
+                        💬 WhatsApp
+                    </a>
+                </div>
+
+                <!-- Gizelle -->
+                <div class="reseller-card">
+                    <div class="reseller-avatar">G</div>
+                    <div class="reseller-name">Gizelle</div>
+                    <div class="reseller-phone">📱 (16) 99293-9887</div>
+                    <a href="https://wa.me/5516992939887" class="reseller-whatsapp" target="_blank">
+                        💬 WhatsApp
+                    </a>
+                </div>
+
+                <!-- Jéssica CEO -->
+                <div class="reseller-card" style="border: 2px solid var(--rosa-sexs);">
+                    <div class="reseller-avatar" style="background: linear-gradient(135deg, var(--rosa-sexs) 0%, #FF1493 100%);">J</div>
+                    <div class="reseller-name">Jéssica <span style="color: var(--rosa-sexs); font-size: 0.8em;">CEO</span></div>
+                    <div class="reseller-phone">📱 (16) 98863-8987</div>
+                    <a href="https://wa.me/5516988638987" class="reseller-whatsapp" target="_blank">
+                        💬 WhatsApp
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div class="footer-brand">SexS</div>
+        <div class="footer-text">
+            <span class="heart-accent">♥</span> Sensualidade • Elegância • Sofisticação <span class="heart-accent">♥</span>
+        </div>
+        <div class="footer-text" style="margin-top: 10px; font-size: 0.85em;">
+            Catálogo Premium de Produtos Sensuais
+        </div>
+        <div class="footer-ceo">
+            <div class="footer-text">
+                CEO & Founder: <a href="https://wa.me/5516988638987" target="_blank">Jéssica</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+`);
+});
+
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`SexS OS rodando em http://0.0.0.0:${PORT}`);
   console.log(`Ambiente: ${IS_PRODUCTION ? 'PRODUÇÃO' : 'desenvolvimento'}${IS_DEMO_MODE ? ' (DEMO ATIVO — tokens visíveis)' : ''}`);
