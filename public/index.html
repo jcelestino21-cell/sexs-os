@@ -571,8 +571,9 @@ async function renderKits() {
         if (k.status === 'sugerido') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'approve\')">Aprovar</button><button class="reject" onclick="kitAction('+k.id+',\'reject\')">Rejeitar</button></div>';
         else if (k.status === 'aprovado') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button><button class="reject" onclick="kitAction('+k.id+',\'cancel\')">Cancelar</button></div>';
         else if (k.status === 'em_preparacao') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button></div>';
-        else if (k.status === 'entregue') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'request-closure\')">Solicitar fechamento</button></div>';
+        else if (k.status === 'entregue') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="kitAction('+k.id+',\'request-closure\')">Solicitar fechamento</button></div>';
         else if (k.status === 'aguardando_fechamento') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="finalizeAndClose('+k.id+')">✅ Conferir e Fechar</button><button class="reject" onclick="forceCloseKit('+k.id+')">⚡ Forçar</button></div>';
+        else if (k.status === 'encerrado') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button></div>';
 
         kitsHtml += '<div class="kit-card"><span class="pill">' + (statusLabels[k.status]||k.status) + '</span>' +
           '<h3>Kit #' + k.id + ' — ' + esc(k.reseller_name||'') + ' (ciclo ' + k.cycle_number + ')</h3>' +
