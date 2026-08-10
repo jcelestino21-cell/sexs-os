@@ -2306,6 +2306,41 @@ server.listen(PORT, '0.0.0.0', async () => {
 
 module.exports = server;
 
+// PUBLIC: Catalog endpoint (no auth required)
+router.get('/api/public/catalog', (req, res) => {
+  try {
+    const products = db.prepare(`
+      SELECT 
+        p.id,
+        p.name,
+        p.category,
+        p.description,
+        p.image_url,
+        p.available_balance as availability,
+        p.sale_price_cents,
+        p.last_purchase_cost_cents
+      FROM products p
+      WHERE p.active = 1
+      ORDER BY p.category, p.name
+    `).all();
+
+    // Formatar dados para o catálogo
+    const catalog = products.map(p => ({
+      name: p.name,
+      description: p.description || '',
+      image_url: p.image_url || '',
+      category: p.category || 'Outros',
+      availability: p.availability || 0,
+      price_cents: p.sale_price_cents || 0,
+      specs: []
+    }));
+
+    sendJson(res, 200, { success: true, catalog });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+});
+
 // ADMIN: Get kit closure details
 router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res, params) => {
   try {
