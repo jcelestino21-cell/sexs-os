@@ -339,6 +339,7 @@ async function renderApp() {
     if (S.user.role === 'ceo') tabs.push({k:'dashboard',l:'✦ Painel'},{k:'chat',l:'Central'},{k:'proposals',l:'Pendências'});
     if (can('resellers:read')) tabs.push({k:'resellers',l:'Revendedoras'});
     if (can('kits:read')) tabs.push({k:'kits',l:'📦 Kits'});
+    if (can('kits:read')) tabs.push({k:'products-resellers',l:'🔍 Produtos com Clientes'});
     if (can('kits:read')) tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('financial:read')) tabs.push({k:'financial',l:'💰 Financeiro'});
     if (can('stock:read')) tabs.push({k:'stock',l:'📦 Estoque'});
@@ -379,12 +380,12 @@ function switchTab(tab) {
   btns.forEach(function(b){b.classList.remove('active')});
   views.forEach(function(v){v.classList.remove('active')});
   // Find correct tab button
-  var tabNames = ['dashboard','chat','proposals','resellers','kits','orders','financial','stock','kitdetails','resellerMsgs','audit'];
+  var tabNames = ['dashboard','chat','proposals','resellers','kits','products-resellers','orders','financial','stock','kitdetails','resellerMsgs','audit'];
   var idx = tabNames.indexOf(tab);
   if (idx >= 0 && btns[idx]) btns[idx].classList.add('active');
   var view = document.getElementById('v-'+tab);
   if (view) view.classList.add('active');
-  var r = {dashboard:renderDashboard,chat:renderChat,proposals:renderProposals,resellers:renderResellers,kits:renderKits,orders:renderOrders,financial:renderFinancial,stock:renderStock,kitdetails:renderKitDetails,resellerMsgs:renderResellerMessages,audit:renderAudit};
+  var r = {dashboard:renderDashboard,chat:renderChat,proposals:renderProposals,resellers:renderResellers,kits:renderKits,'products-resellers':renderProductsResellers,orders:renderOrders,financial:renderFinancial,stock:renderStock,kitdetails:renderKitDetails,resellerMsgs:renderResellerMessages,audit:renderAudit};
   if (r[tab]) r[tab]();
 }
 
@@ -717,6 +718,66 @@ async function forceCloseKit(kitId) {
   } catch(e) { toast('Erro: ' + e.message); }
 }
 
+// ===== PRODUTOS COM CLIENTES (visão consolidada) =====
+async function renderProductsResellers() {
+  var v = $('#v-products-resellers'); if(!v) return;
+  v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
+  try {
+    var data = await api('/api/admin/products-with-resellers');
+    var products = data.products || [];
+    
+    if (!products.length) {
+      v.innerHTML = '<div class="panel"><div class="empty">Nenhum produto com revendedoras no momento. 📦</div></div>';
+      return;
+    }
+    
+    var searchHtml = '<div class="panel" style="margin-bottom:16px"><div class="st" style="margin-top:0">🔍 Buscar produto ou revendedora</div>' +
+      '<input id="prodSearch" placeholder="Digite o nome do produto ou revendedora..." oninput="filterProdRes()" style="width:100%" />' +
+      '</div>';
+    
+    var html = searchHtml + '<div id="prodResList">';
+    
+    products.forEach(function(prod) {
+      var totalAvailable = prod.resellers.reduce(function(s,r){ return s + (r.available || 0); }, 0);
+      var totalSold = prod.resellers.reduce(function(s,r){ return s + (r.sold || 0); }, 0);
+      var totalDelivered = prod.resellers.reduce(function(s,r){ return s + (r.delivered || 0); }, 0);
+      
+      html += '<div class="kit-card prod-res-card" data-search="' + esc(prod.product_name.toLowerCase()) + ' ' + prod.resellers.map(function(r){return esc(r.reseller_name.toLowerCase())}).join(' ') + '">';
+      html += '<h3 style="margin-top:0">' + esc(prod.product_name) + '</h3>';
+      html += '<div style="font-size:12px;color:var(--t2);margin-bottom:8px">';
+      html += '💰 R$ ' + (prod.unit_price/100).toFixed(2) + ' · ';
+      html += '📦 ' + totalDelivered + ' entregue(s) · ';
+      html += '<span style="color:#4ade80">✅ ' + totalSold + ' vendido(s)</span> · ';
+      html += '<span style="color:#ffa500">📋 ' + totalAvailable + ' disponível(is)</span>';
+      html += '</div>';
+      
+      prod.resellers.forEach(function(r) {
+        html += '<div class="il" style="padding:6px 0">';
+        html += '<span>👩‍💼 <b>' + esc(r.reseller_name) + '</b> <span style="font-size:11px;color:var(--t3)">(Kit #' + r.kit_id + ')</span></span>';
+        html += '<span style="font-size:12px">';
+        if (r.sold > 0) html += '<span style="color:#4ade80">✅ ' + r.sold + ' vendido(s)</span> ';
+        if (r.available > 0) html += '<span style="color:#ffa500;font-weight:600">📋 ' + r.available + ' disponível(is)</span>';
+        if (r.sold === 0 && r.available === 0) html += '<span style="color:var(--t3)">— esgotado</span>';
+        html += '</span></div>';
+      });
+      
+      html += '</div>';
+    });
+    
+    html += '</div>';
+    v.innerHTML = html;
+  } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + '</div></div>'; }
+}
+
+function filterProdRes() {
+  var q = ($('#prodSearch').value || '').toLowerCase();
+  var cards = $$('.prod-res-card');
+  cards.forEach(function(c) {
+    var text = c.getAttribute('data-search') || '';
+    c.style.display = text.indexOf(q) >= 0 ? '' : 'none';
+  });
+}
+
 // ===== PEDIDOS DAS REVENDEDORAS =====
 async function renderOrders() {
   var v = $('#v-orders'); if(!v) return;
@@ -1040,8 +1101,8 @@ async function renderAudit() {
 function renderPortal() {
   var root = $('#app');
   root.innerHTML = '<div class="hdr"><div class="hdr-brand"><img src="/logo-sm.png" alt="SexS" class="hdr-logo" /><div><div class="hdr-title">Portal da Revendedora</div><div class="hdr-sub">Bem-vinda, '+esc(S.user.name)+'</div></div></div><button class="logout" onclick="logout()">sair</button></div>' +
-    '<div class="tabs"><button class="tab active" onclick="switchPortalTab(\'kits\')">📦 Meus Kits</button><button class="tab" onclick="switchPortalTab(\'sales\')">📊 Minhas Vendas</button><button class="tab" onclick="switchPortalTab(\'orders\')">📋 Pedidos</button><button class="tab" onclick="switchPortalTab(\'messages\')">💬 Recados</button><button class="tab" onclick="switchPortalTab(\'ranking\')">🏆 Ranking</button><button class="tab" onclick="switchPortalTab(\'tips\')">💡 Dicas</button></div>' +
-    '<div id="portal-kits" class="view active"></div><div id="portal-sales" class="view"></div><div id="portal-orders" class="view"></div><div id="portal-messages" class="view"></div><div id="portal-ranking" class="view"></div><div id="portal-tips" class="view"></div>';
+    '<div class="tabs"><button class="tab active" onclick="switchPortalTab(\'kits\')">📦 Meus Kits</button><button class="tab" onclick="switchPortalTab(\'sales\')">📊 Minhas Vendas</button><button class="tab" onclick="switchPortalTab(\'catalog\')">🛍️ Catálogo</button><button class="tab" onclick="switchPortalTab(\'orders\')">📋 Pedidos</button><button class="tab" onclick="switchPortalTab(\'messages\')">💬 Recados</button><button class="tab" onclick="switchPortalTab(\'ranking\')">🏆 Ranking</button><button class="tab" onclick="switchPortalTab(\'tips\')">💡 Dicas</button></div>' +
+    '<div id="portal-kits" class="view active"></div><div id="portal-sales" class="view"></div><div id="portal-catalog" class="view"></div><div id="portal-orders" class="view"></div><div id="portal-messages" class="view"></div><div id="portal-ranking" class="view"></div><div id="portal-tips" class="view"></div>';
   renderPortalKits();
 }
 
@@ -1052,10 +1113,72 @@ function switchPortalTab(tab) {
   document.getElementById('portal-'+tab).classList.add('active');
   if (tab === 'kits') renderPortalKits();
   if (tab === 'sales') renderPortalSales();
+  if (tab === 'catalog') renderPortalCatalog();
   if (tab === 'orders') renderPortalOrders();
   if (tab === 'messages') renderPortalMessages();
   if (tab === 'ranking') renderPortalRanking();
   if (tab === 'tips') renderPortalTips();
+}
+
+// ===== PORTAL: CATÁLOGO DE PRODUTOS =====
+async function renderPortalCatalog() {
+  var v = $('#portal-catalog'); if(!v) return;
+  v.innerHTML = '<div class="panel"><div class="empty">Carregando catálogo...</div></div>';
+  try {
+    var data = await api('/api/portal/catalog');
+    var catalog = data.catalog || [];
+    
+    if (!catalog.length) {
+      v.innerHTML = '<div class="panel"><div class="empty">Nenhum produto no catálogo ainda. 🛍️<br><br>Seu kit precisa estar ativo para ver o catálogo.</div></div>';
+      return;
+    }
+    
+    var categories = {};
+    catalog.forEach(function(p) {
+      var cat = p.category || 'Outros';
+      if (!categories[cat]) categories[cat] = [];
+      categories[cat].push(p);
+    });
+    
+    var html = '<div class="panel"><div class="st" style="margin-top:0">🛍️ Catálogo de Produtos</div>' +
+      '<div style="font-size:12px;color:var(--t2);margin-bottom:16px">Mostre este catálogo para suas clientes! São <b>' + catalog.length + ' produtos</b> disponíveis para venda.</div>' +
+      '<input id="catalogSearch" placeholder="🔍 Buscar produto..." oninput="filterCatalog()" style="width:100%;margin-bottom:16px" />';
+    
+    Object.keys(categories).sort().forEach(function(cat) {
+      var items = categories[cat];
+      html += '<div style="margin-bottom:20px">';
+      html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ac);font-weight:600;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--bd)">' + esc(cat) + ' (' + items.length + ')</div>';
+      
+      items.forEach(function(p) {
+        var price = (p.unit_sale_price_cents || 0) / 100;
+        var avail = p.available_balance || 0;
+        var availColor = avail > 0 ? '#4ade80' : '#ff6b6b';
+        var availText = avail > 0 ? avail + ' disponível(is)' : 'Esgotado';
+        
+        html += '<div class="catalog-item" data-search="' + esc(p.name.toLowerCase()) + '" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)">';
+        html += '<div style="flex:1"><div style="font-weight:500;font-size:13px">' + esc(p.name) + '</div>';
+        if (p.description) html += '<div style="font-size:11px;color:var(--t3);margin-top:2px">' + esc(p.description) + '</div>';
+        html += '<div style="font-size:11px;color:' + availColor + ';margin-top:2px">' + availText + '</div>';
+        html += '</div>';
+        html += '<div style="text-align:right;font-family:Playfair Display,serif;font-size:18px;font-weight:600;color:var(--ac)">R$ ' + price.toFixed(2) + '</div>';
+        html += '</div>';
+      });
+      
+      html += '</div>';
+    });
+    
+    html += '</div>';
+    v.innerHTML = html;
+  } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + '</div></div>'; }
+}
+
+function filterCatalog() {
+  var q = ($('#catalogSearch').value || '').toLowerCase();
+  var items = $$('.catalog-item');
+  items.forEach(function(c) {
+    var text = c.getAttribute('data-search') || '';
+    c.style.display = text.indexOf(q) >= 0 ? '' : 'none';
+  });
 }
 
 // ===== PORTAL: PEDIDOS =====

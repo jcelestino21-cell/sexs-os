@@ -11,7 +11,7 @@ const commercialService = require('./commercialService');
 function todayActivity() {
   const row = db.prepare(`
     SELECT COUNT(*) as sales_count, COALESCE(SUM(quantity * unit_price_cents),0) as revenue_informed_cents
-    FROM kit_sales WHERE date(created_at) = date('now') AND status = 'confirmada'
+    FROM kit_sales WHERE date(created_at) = date('now') AND status = 'confirmada' AND status = 'confirmada'
   `).get();
   return { sales_today_count: row.sales_count, revenue_informed_today_cents: row.revenue_informed_cents };
 }

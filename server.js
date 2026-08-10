@@ -1898,6 +1898,101 @@ router.post('/api/admin/delete-expenses', requireAuth(async (req, res) => {
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: List products with resellers (active kits)
+router.get('/api/admin/products-with-resellers', requireAuth((req, res) => {
+  try {
+    const kits = db.prepare(`
+      SELECT k.id as kit_id, k.status, r.name as reseller_name, r.id as reseller_id
+      FROM kits k
+      JOIN resellers r ON r.id = k.reseller_id
+      WHERE k.status IN ('entregue', 'aguardando_fechamento')
+    `).all();
+
+    const result = {};
+    
+    for (const kit of kits) {
+      const items = db.prepare(`
+        SELECT 
+          ki.id as kit_item_id,
+          p.name as product_name,
+          p.id as product_id,
+          ki.quantity_delivered,
+          ki.quantity_available,
+          ki.quantity_confirmed_sold,
+          ki.unit_sale_price_cents
+        FROM kit_items ki
+        JOIN products p ON p.id = ki.product_id
+        WHERE ki.kit_id = ?
+      `).all(kit.kit_id);
+
+      for (const item of items) {
+        if (!result[item.product_name]) {
+          result[item.product_name] = {
+            product_id: item.product_id,
+            product_name: item.product_name,
+            unit_price: item.unit_sale_price_cents,
+            resellers: []
+          };
+        }
+        
+        result[item.product_name].resellers.push({
+          reseller_name: kit.reseller_name,
+          reseller_id: kit.reseller_id,
+          kit_id: kit.kit_id,
+          kit_status: kit.status,
+          delivered: item.quantity_delivered,
+          available: item.quantity_available,
+          sold: item.quantity_confirmed_sold
+        });
+      }
+    }
+
+    sendJson(res, 200, { products: Object.values(result) });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// RESELLER: Product catalog with prices
+router.get('/api/portal/catalog', requireReseller((req, res) => {
+  try {
+    const products = db.prepare(`
+      SELECT DISTINCT
+        p.id,
+        p.name,
+        p.category,
+        p.description,
+        ki.unit_sale_price_cents,
+        p.available_balance
+      FROM products p
+      JOIN kit_items ki ON ki.product_id = p.id
+      JOIN kits k ON k.id = ki.kit_id
+      WHERE k.reseller_id = ?
+        AND k.status IN ('entregue', 'aguardando_fechamento')
+      ORDER BY p.category, p.name
+    `).all(req.user.reseller_id);
+
+    sendJson(res, 200, { catalog: products });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}));
+
+// ADMIN: Delete expenses by IDs
+router.post('/api/admin/delete-expenses', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const ids = body.ids;
+    if (!ids || !Array.isArray(ids)) return sendJson(res, 400, { error: 'ids must be an array' });
+    let deletedCount = 0;
+    for (const id of ids) {
+      const result = db.prepare("DELETE FROM expenses WHERE id = ?").run(Number(id));
+      deletedCount += result.changes;
+    }
+    sendJson(res, 200, { ok: true, deleted_count: deletedCount });
+  } catch(e) { sendJson(res, 400, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/bulk-add-products', requireAuth(async (req, res) => {
   try {
     const products = await readJsonBody(req);
