@@ -1368,12 +1368,39 @@ async function renderPortalKits() {
       return;
     }
     
-    // Coletar TODOS os itens de todos os kits ativos num só lugar
+    // Filtrar apenas kits entregues ou aguardando fechamento (prontos para venda)
+    var readyKits = activeKits.filter(function(k) { 
+      return k.status === 'entregue' || k.status === 'aguardando_fechamento'; 
+    });
+    
+    // Se não tem kits prontos para venda, mostrar status dos kits em preparação
+    if (!readyKits.length) {
+      var html = '<div class="panel"><div class="st" style="margin-top:0">Status dos Seus Kits</div>';
+      
+      activeKits.forEach(function(k) {
+        var statusMessages = {
+          'sugerido': '⏳ Seu kit está sendo preparado pela CEO. Aguarde a aprovação!',
+          'aprovado': '✅ Seu kit foi aprovado! Aguarde a entrega.',
+          'em_preparacao': '📦 Seu kit está sendo preparado. Aguarde a entrega!'
+        };
+        
+        html += '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd);margin-bottom:12px">';
+        html += '<div style="font-weight:600;margin-bottom:8px">Kit #' + k.id + '</div>';
+        html += '<div style="color:var(--t2)">' + (statusMessages[k.status] || 'Status: ' + k.status) + '</div>';
+        html += '</div>';
+      });
+      
+      html += '</div>';
+      v.innerHTML = html;
+      return;
+    }
+    
+    // Coletar TODOS os itens de todos os kits prontos para venda
     var allItems = [];
     var hasDelivered = false;
     var totalValue = 0;
     
-    for (var k of activeKits) {
+    for (var k of readyKits) {
       try {
         var detail = await api('/api/portal/kits/'+k.id, {token: S.token});
         var kit = detail.kit;
@@ -1389,7 +1416,7 @@ async function renderPortalKits() {
       } catch(e) {}
     }
     
-    var html = '<div class="kit-card"><span class="pill">'+esc(activeKits[0].status.replace(/_/g,' '))+'</span><h3>Meus Produtos</h3>' +
+    var html = '<div class="kit-card"><span class="pill">'+esc(readyKits[0].status.replace(/_/g,' '))+'</span><h3>Meus Produtos</h3>' +
       '<div style="font-size:12px;color:var(--t3);margin-bottom:12px">'+allItems.length+' produtos · Valor total: <b style="color:var(--ac)">R$ '+(totalValue/100).toFixed(2)+'</b></div>';
     
     // Lista de todos os produtos juntos
@@ -1410,7 +1437,7 @@ async function renderPortalKits() {
       });
       
       // Botão solicitar fechamento
-      var openKitIds = activeKits.filter(function(k){return k.status==='entregue'||k.status==='aguardando_fechamento'}).map(function(k){return k.id});
+      var openKitIds = readyKits.filter(function(k){return k.status==='entregue'||k.status==='aguardando_fechamento'}).map(function(k){return k.id});
       html += '<div style="margin-top:16px;text-align:center"><button class="btn-s" onclick="requestClosureAll(['+openKitIds.join(',')+'])">📋 Solicitar Fechamento</button></div>';
     }
     
