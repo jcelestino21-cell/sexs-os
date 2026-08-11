@@ -1238,14 +1238,10 @@ async function renderPortalCatalog() {
       
       items.forEach(function(p) {
         var price = (p.sale_price_cents || 0) / 100;
-        var avail = p.available_balance || 0;
-        var availColor = avail > 0 ? '#4ade80' : '#ff6b6b';
-        var availText = avail > 0 ? avail + ' disponível(is)' : 'Esgotado';
         
         html += '<div class="catalog-item" data-search="' + esc(p.name.toLowerCase()) + '" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)">';
         html += '<div style="flex:1"><div style="font-weight:500;font-size:13px">' + esc(p.name) + '</div>';
         if (p.description) html += '<div style="font-size:11px;color:var(--t3);margin-top:2px">' + esc(p.description) + '</div>';
-        html += '<div style="font-size:11px;color:' + availColor + ';margin-top:2px">' + availText + '</div>';
         html += '</div>';
         html += '<div style="text-align:right;font-family:Playfair Display,serif;font-size:18px;font-weight:600;color:var(--ac)">R$ ' + price.toFixed(2) + '</div>';
         html += '</div>';
@@ -1341,26 +1337,7 @@ async function renderPortalKits() {
     var activeKits = data.kits.filter(function(k) { return k.status !== 'encerrado'; });
     
     if (!activeKits.length) {
-      // Buscar catálogo completo quando não há kit ativo
-      var catalogData = await api('/api/portal/catalog', {token: S.token});
-      var catalog = catalogData.catalog || [];
-      
-      if (!catalog.length) {
-        v.innerHTML = '<div class="panel"><div class="empty">Nenhum produto disponível no momento.</div></div>';
-        return;
-      }
-      
-      var html = '<div class="kit-card"><span class="pill">Catálogo Completo</span><h3>Todos os Produtos</h3>' +
-        '<div style="font-size:12px;color:var(--t3);margin-bottom:12px">'+catalog.length+' produtos disponíveis</div>';
-      
-      catalog.forEach(function(item) {
-        var price = (item.sale_price_cents || 0) / 100;
-        html += '<div class="il"><span>'+esc(item.name)+'</span>';
-        html += '<span><b>R$ '+price.toFixed(2)+'</b></span></div>';
-      });
-      
-      html += '</div>';
-      v.innerHTML = html;
+      v.innerHTML = '<div class="panel"><div class="empty">Seu kit anterior foi encerrado. Aguarde o próximo kit! 📦</div></div>';
       return;
     }
     
@@ -1439,28 +1416,56 @@ async function renderPortalSales() {
   var v = $('#portal-sales'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
   try {
-    var data = await api('/api/portal/sales', {token: S.token});
-    var s = data.summary || {};
-    var sales = data.sales || [];
-    var f = function(c) { return 'R$ ' + ((c||0)/100).toFixed(2); };
-
+    // Buscar dados de vendas
+    var salesData = await api('/api/portal/sales', {token: S.token});
+    var s = salesData.summary || {};
+    var sales = salesData.sales || [];
+    
+    // Buscar kits da revendedora
+    var kitsData = await api('/api/portal/kits', {token: S.token});
+    var kits = kitsData.kits || [];
+    
     // Buscar histórico de comissões
     var historyData = await api('/api/portal/commission-history', {token: S.token});
     var totalReceived = historyData.total_received_cents || 0;
     var totalPayments = historyData.total_payments || 0;
-
+    
+    var f = function(c) { return 'R$ ' + ((c||0)/100).toFixed(2); };
+    
+    // Separar kits ativos e encerrados
+    var activeKits = kits.filter(function(k) { return k.status !== 'encerrado'; });
+    var closedKits = kits.filter(function(k) { return k.status === 'encerrado'; });
+    
+    // Calcular dados apenas do kit ativo
+    var activeSummary = { items_sold: 0, total_sold_cents: 0, commission_earned_cents: 0, commission_pct: s.commission_pct || 0 };
+    if (activeKits.length > 0) {
+      var activeKitIds = activeKits.map(function(k) { return k.id; });
+      var activeSales = sales.filter(function(sale) { return activeKitIds.indexOf(sale.kit_id) !== -1; });
+      
+      activeSales.forEach(function(sale) {
+        if (sale.status === 'confirmada') {
+          activeSummary.items_sold += sale.quantity;
+          var total = sale.quantity * (sale.unit_price_cents || 0);
+          activeSummary.total_sold_cents += total;
+        }
+      });
+      
+      activeSummary.commission_earned_cents = Math.round(activeSummary.total_sold_cents * activeSummary.commission_pct);
+    }
+    
+    // Cards no topo - apenas kit ativo
     var summaryHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">' +
       '<div style="background:var(--p2);padding:14px;border-radius:var(--r2);border:1px solid var(--bd)">' +
-        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📦 Itens Vendidos</div>' +
-        '<div style="font-size:22px;font-weight:700;margin-top:4px">' + (s.items_sold||0) + '</div>' +
+        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📦 Itens Vendidos (Kit Ativo)</div>' +
+        '<div style="font-size:22px;font-weight:700;margin-top:4px">' + activeSummary.items_sold + '</div>' +
       '</div>' +
       '<div style="background:var(--p2);padding:14px;border-radius:var(--r2);border:1px solid var(--bd)">' +
-        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">💰 Total Vendido</div>' +
-        '<div style="font-size:22px;font-weight:700;color:var(--ac);margin-top:4px">' + f(s.total_sold_cents) + '</div>' +
+        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">💰 Total Vendido (Kit Ativo)</div>' +
+        '<div style="font-size:22px;font-weight:700;color:var(--ac);margin-top:4px">' + f(activeSummary.total_sold_cents) + '</div>' +
       '</div>' +
       '<div style="background:var(--p2);padding:14px;border-radius:var(--r2);border:1px solid rgba(148,184,138,.25)">' +
-        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">🏆 Minha Comissão (' + Math.round((s.commission_pct||0)*100) + '%)</div>' +
-        '<div style="font-size:22px;font-weight:700;color:#4ade80;margin-top:4px">' + f(s.commission_earned_cents) + '</div>' +
+        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">🏆 Minha Comissão (Kit Ativo)</div>' +
+        '<div style="font-size:22px;font-weight:700;color:#4ade80;margin-top:4px">' + f(activeSummary.commission_earned_cents) + '</div>' +
       '</div>' +
     '</div>' +
     '<div style="margin-bottom:20px">' +
@@ -1470,27 +1475,72 @@ async function renderPortalSales() {
         '<div style="font-size:13px;opacity:0.9">' + totalPayments + ' pagamentos confirmados</div>' +
       '</div>' +
     '</div>';
-
-    var tableHtml = '';
-    if (sales.length > 0) {
-      tableHtml = '<div style="overflow-x:auto"><table style="width:100%;font-size:13px">' +
-        '<tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Preço</th><th style="text-align:right">Total</th><th>Status</th></tr>';
-      sales.forEach(function(sale) {
-        var statusColors = {informada:'#ffa500', confirmada:'#4ade80', rejeitada:'#3b82f6'};
-        var statusLabels = {informada:'⏳ Informada', confirmada:'✅ Confirmada', rejeitada:'📦 Devolução'};
-        var total = sale.quantity * (sale.unit_price_cents||0);
-        tableHtml += '<tr><td>' + esc(sale.product_name) + '</td>' +
-          '<td style="text-align:center;font-weight:600">' + sale.quantity + '</td>' +
-          '<td style="text-align:right">' + f(sale.unit_price_cents) + '</td>' +
-          '<td style="text-align:right;font-weight:600">' + f(total) + '</td>' +
-          '<td><span style="color:' + (statusColors[sale.status]||'var(--t2)') + '">' + (statusLabels[sale.status]||sale.status) + '</span></td></tr>';
+    
+    // Resumo de kits encerrados
+    var closedKitsHtml = '';
+    if (closedKits.length > 0) {
+      closedKitsHtml = '<div class="st">Resumo de Kits Encerrados</div>';
+      
+      closedKits.forEach(function(kit) {
+        // Buscar vendas deste kit
+        var kitSales = sales.filter(function(sale) { return sale.kit_id === kit.id; });
+        
+        var vendidos = 0;
+        var devolvidos = 0;
+        var totalVendido = 0;
+        
+        kitSales.forEach(function(sale) {
+          if (sale.status === 'confirmada') {
+            vendidos += sale.quantity;
+            totalVendido += sale.quantity * (sale.unit_price_cents || 0);
+          } else if (sale.status === 'rejeitada') {
+            devolvidos += sale.quantity;
+          }
+        });
+        
+        var comissao = Math.round(totalVendido * (s.commission_pct || 0));
+        
+        closedKitsHtml += '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd);margin-bottom:12px">' +
+          '<div style="font-weight:600;margin-bottom:12px">Kit #' + kit.id + ' - ' + esc(kit.status.replace(/_/g, ' ')) + '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px">' +
+            '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Vendidos</div><div style="font-size:18px;font-weight:700;color:#4ade80">' + vendidos + '</div></div>' +
+            '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Devolvidos</div><div style="font-size:18px;font-weight:700;color:#3b82f6">' + devolvidos + '</div></div>' +
+            '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Comissão</div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + f(comissao) + '</div></div>' +
+          '</div>' +
+        '</div>';
       });
-      tableHtml += '</table></div>';
-    } else {
+    }
+    
+    // Tabela de vendas do kit ativo
+    var tableHtml = '';
+    if (activeKits.length > 0 && sales.length > 0) {
+      var activeKitIds = activeKits.map(function(k) { return k.id; });
+      var activeSales = sales.filter(function(sale) { return activeKitIds.indexOf(sale.kit_id) !== -1; });
+      
+      if (activeSales.length > 0) {
+        tableHtml = '<div class="st">Detalhes das Vendas (Kit Ativo)</div>' +
+          '<div style="overflow-x:auto"><table style="width:100%;font-size:13px">' +
+          '<tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Preço</th><th style="text-align:right">Total</th><th>Status</th></tr>';
+        
+        activeSales.forEach(function(sale) {
+          var statusColors = {informada:'#ffa500', confirmada:'#4ade80', rejeitada:'#3b82f6'};
+          var statusLabels = {informada:'⏳ Informada', confirmada:'✅ Confirmada', rejeitada:'📦 Devolução'};
+          var total = sale.quantity * (sale.unit_price_cents||0);
+          tableHtml += '<tr><td>' + esc(sale.product_name) + '</td>' +
+            '<td style="text-align:center;font-weight:600">' + sale.quantity + '</td>' +
+            '<td style="text-align:right">' + f(sale.unit_price_cents) + '</td>' +
+            '<td style="text-align:right;font-weight:600">' + f(total) + '</td>' +
+            '<td><span style="color:' + (statusColors[sale.status]||'var(--t2)') + '">' + (statusLabels[sale.status]||sale.status) + '</span></td></tr>';
+        });
+        tableHtml += '</table></div>';
+      }
+    }
+    
+    if (activeKits.length === 0 && closedKits.length === 0) {
       tableHtml = '<div class="empty">Nenhuma venda registrada ainda. Informe vendas na aba "Meus Kits"! 📦</div>';
     }
-
-    v.innerHTML = '<div class="panel"><div class="st" style="margin-top:0">📊 Minhas Vendas</div>' + summaryHtml + tableHtml + '</div>';
+    
+    v.innerHTML = '<div class="panel"><div class="st" style="margin-top:0">📊 Minhas Vendas</div>' + summaryHtml + closedKitsHtml + tableHtml + '</div>';
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + '</div></div>'; }
 }
 
