@@ -2934,6 +2934,31 @@ router.get('/api/admin/reseller-orders/:resellerId', requireAuth((req, res, para
   }
 }, { roles: ['ceo'] }));
 
+
+// Restaurar pedidos separados para pendente
+router.post('/api/admin/restore-separated-orders', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const resellerId = body.reseller_id;
+    
+    const result = db.prepare(`
+      UPDATE reseller_orders 
+      SET status = 'pendente', 
+          quantity_separated = 0,
+          kit_id = NULL,
+          updated_at = datetime('now')
+      WHERE reseller_id = ? AND status = 'separado'
+    `).run(resellerId);
+    
+    sendJson(res, 200, { 
+      message: `${result.changes} pedidos separados restaurados para pendente`,
+      restored_count: result.changes
+    });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/fix-commission-table', requireAuth(async (req, res) => {
   try {
     // Dropar tabela se existir
