@@ -23,6 +23,8 @@ class Router {
 
   get(path, handler) { this._add('GET', path, handler); }
   post(path, handler) { this._add('POST', path, handler); }
+  put(path, handler) { this._add('PUT', path, handler); }
+  delete(path, handler) { this._add('DELETE', path, handler); }
 
   match(method, pathname) {
     for (const route of this.routes) {
