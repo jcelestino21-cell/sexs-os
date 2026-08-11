@@ -2612,6 +2612,28 @@ router.get('/api/portal/commission-history', requireReseller((req, res) => {
 }));
 
 // TEMP: Corrigir estrutura da tabela commission_payments
+
+// Restaurar pedidos para pendente (usado para limpar dados de teste)
+router.post('/api/admin/restore-orders', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const resellerId = body.reseller_id;
+    
+    const result = db.prepare(`
+      UPDATE reseller_orders 
+      SET status = 'pendente', updated_at = datetime('now')
+      WHERE reseller_id = ? AND status = 'atendido'
+    `).run(resellerId);
+    
+    sendJson(res, 200, { 
+      message: `${result.changes} pedidos restaurados para pendente`,
+      restored_count: result.changes
+    });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/fix-commission-table', requireAuth(async (req, res) => {
   try {
     // Dropar tabela se existir
