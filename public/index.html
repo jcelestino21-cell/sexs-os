@@ -1265,8 +1265,8 @@ async function renderStock() {
         tableHtml += '<tr' + (lowStock && reserved === 0 ? ' style="background:rgba(212,113,122,.08)"' : '') + '>' +
           '<td style="font-weight:500;font-size:13px">' + esc(p.name) + (lowStock && reserved === 0 ? ' <span style="color:var(--dg);font-size:10px">⚠ baixo</span>' : '') + '</td>' +
           '<td style="text-align:center;font-weight:700;font-size:14px">' + avail + '</td>' +
-          '<td style="text-align:center"><input type="number" class="stock-edit-input" data-original="' + avail + '" data-product-id="' + p.id + '" onchange="updateStockChange(' + p.id + ', this.value)" style="display:none;width:80px" /></td>' +
           '<td style="text-align:center;color:' + (reserved > 0 ? '#ffa500' : 'var(--t3)') + ';font-weight:' + (reserved > 0 ? '600' : '400') + '">' + (reserved > 0 ? reserved : '—') + '</td>' +
+          '<td style="text-align:center"><input type="number" class="stock-edit-input" data-original="' + avail + '" data-product-id="' + p.id + '" onchange="updateStockChange(' + p.id + ', this.value)" style="display:none;width:80px" /></td>' +
           '<td style="text-align:right;color:var(--t2)">' + f(cost) + '</td>' +
           '<td style="text-align:right;color:var(--ac);font-weight:700;font-size:14px">' + f(sale) + '</td>' +
           '<td style="text-align:right"><span style="color:#ffa500">' + f(profit30) + '</span><br><span style="color:#4ade80;font-size:11px">' + f(profit25) + '</span></td>' +
