@@ -2959,6 +2959,61 @@ router.post('/api/admin/restore-separated-orders', requireAuth(async (req, res) 
   }
 }, { roles: ['ceo'] }));
 
+
+// Atualizar quantidades em estoque (em lote)
+router.post('/api/admin/update-stock-quantities', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const updates = body.updates || [];
+    
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return sendJson(res, 400, { error: 'Nenhuma atualização fornecida' });
+    }
+    
+    const results = [];
+    
+    for (const update of updates) {
+      const productId = update.product_id;
+      const newQuantity = parseInt(update.new_quantity);
+      const reason = update.reason || 'Ajuste de estoque';
+      
+      if (!productId || isNaN(newQuantity) || newQuantity < 0) {
+        results.push({ product_id: productId, success: false, error: 'Dados inválidos' });
+        continue;
+      }
+      
+      const currentBal = db.prepare('SELECT COALESCE(SUM(quantity),0) as bal FROM stock_movements WHERE product_id = ?').get(productId).bal;
+      const diff = newQuantity - currentBal;
+      
+      if (diff === 0) {
+        results.push({ product_id: productId, success: true, message: 'Quantidade já está correta' });
+        continue;
+      }
+      
+      const type = diff > 0 ? 'entrada_ajuste' : 'saida_ajuste';
+      const newBalance = currentBal + diff;
+      
+      db.prepare('INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)')
+        .run(productId, type, diff, newBalance, reason, req.user.id);
+      
+      results.push({ 
+        product_id: productId, 
+        success: true, 
+        old_quantity: currentBal,
+        new_quantity: newQuantity,
+        difference: diff
+      });
+    }
+    
+    sendJson(res, 200, { 
+      message: `${results.filter(r => r.success).length} produtos atualizados`,
+      results: results
+    });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/fix-commission-table', requireAuth(async (req, res) => {
   try {
     // Dropar tabela se existir

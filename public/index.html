@@ -1265,6 +1265,7 @@ async function renderStock() {
         tableHtml += '<tr' + (lowStock && reserved === 0 ? ' style="background:rgba(212,113,122,.08)"' : '') + '>' +
           '<td style="font-weight:500;font-size:13px">' + esc(p.name) + (lowStock && reserved === 0 ? ' <span style="color:var(--dg);font-size:10px">⚠ baixo</span>' : '') + '</td>' +
           '<td style="text-align:center;font-weight:700;font-size:14px">' + avail + '</td>' +
+          '<td style="text-align:center"><input type="number" class="stock-edit-input" data-original="' + avail + '" data-product-id="' + p.id + '" onchange="updateStockChange(' + p.id + ', this.value)" style="display:none;width:80px" /></td>' +
           '<td style="text-align:center;color:' + (reserved > 0 ? '#ffa500' : 'var(--t3)') + ';font-weight:' + (reserved > 0 ? '600' : '400') + '">' + (reserved > 0 ? reserved : '—') + '</td>' +
           '<td style="text-align:right;color:var(--t2)">' + f(cost) + '</td>' +
           '<td style="text-align:right;color:var(--ac);font-weight:700;font-size:14px">' + f(sale) + '</td>' +
@@ -1282,6 +1283,7 @@ async function renderStock() {
         '<th style="text-align:left">Produto</th>' +
         '<th style="text-align:center">Disponível</th>' +
         '<th style="text-align:center;color:#ffa500">Reservado</th>' +
+        '<th style="text-align:center">✏️ Editar</th>' +
         '<th style="text-align:right">💰 Compra</th>' +
         '<th style="text-align:right;color:var(--ac)">🏷️ Venda Sugerida</th>' +
         '<th style="text-align:right">📈 Lucro/un<br><span style="font-size:8px;font-weight:400;text-transform:none">🟠 30% · 🟢 25%</span></th>' +
@@ -1299,6 +1301,85 @@ async function renderStock() {
 
 // ===== AUDITORIA =====
 // ===== CEO: KITS DETALHADO (produtos com cada revendedora) =====
+
+var stockEditMode = false;
+var stockChanges = {};
+
+function toggleStockEditMode() {
+  stockEditMode = !stockEditMode;
+  var saveBtn = document.getElementById('saveStockBtn');
+  var cancelBtn = document.getElementById('cancelStockBtn');
+  var editInputs = document.querySelectorAll('.stock-edit-input');
+  
+  if (stockEditMode) {
+    saveBtn.style.display = 'inline-block';
+    cancelBtn.style.display = 'inline-block';
+    editInputs.forEach(function(input) { input.style.display = 'inline-block'; });
+    toast('Modo de edição ativado', 'ok');
+  } else {
+    saveBtn.style.display = 'none';
+    cancelBtn.style.display = 'none';
+    editInputs.forEach(function(input) { input.style.display = 'none'; });
+    stockChanges = {};
+    toast('Modo de edição desativado');
+  }
+}
+
+function updateStockChange(productId, newQuantity) {
+  stockChanges[productId] = parseInt(newQuantity);
+}
+
+function cancelStockEdit() {
+  stockEditMode = false;
+  stockChanges = {};
+  var saveBtn = document.getElementById('saveStockBtn');
+  var cancelBtn = document.getElementById('cancelStockBtn');
+  var editInputs = document.querySelectorAll('.stock-edit-input');
+  
+  saveBtn.style.display = 'none';
+  cancelBtn.style.display = 'none';
+  editInputs.forEach(function(input) { 
+    input.style.display = 'none';
+    input.value = input.getAttribute('data-original');
+  });
+  
+  toast('Edição cancelada');
+}
+
+async function saveStockChanges() {
+  if (Object.keys(stockChanges).length === 0) {
+    toast('Nenhuma alteração para salvar');
+    return;
+  }
+  
+  var updates = Object.keys(stockChanges).map(function(productId) {
+    return {
+      product_id: parseInt(productId),
+      new_quantity: stockChanges[productId],
+      reason: 'Ajuste manual de estoque'
+    };
+  });
+  
+  try {
+    var response = await api('/api/admin/update-stock-quantities', {
+      method: 'POST',
+      body: JSON.stringify({ updates: updates })
+    });
+    
+    if (response.results) {
+      var successCount = response.results.filter(function(r) { return r.success; }).length;
+      toast(successCount + ' produtos atualizados com sucesso!', 'ok');
+      
+      stockEditMode = false;
+      stockChanges = {};
+      
+      setTimeout(function() { renderStock(); }, 1000);
+    }
+  } catch(e) {
+    toast('Erro ao salvar: ' + e.message);
+  }
+}
+
 async function renderKitDetails() {
   var v = $('#v-kitdetails'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
