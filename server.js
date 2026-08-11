@@ -826,7 +826,7 @@ router.put('/api/portal/orders/:id', requireReseller(async (req, res, params) =>
       return sendJson(res, 400, { error: 'Só é possível editar pedidos pendentes' });
     }
     
-    db.prepare('UPDATE reseller_orders SET quantity_requested = ?, note = ?, updated_at = datetime("now") WHERE id = ?')
+    db.prepare("UPDATE reseller_orders SET quantity_requested = ?, note = ?, updated_at = datetime('now') WHERE id = ?")
       .run(Number(body.quantity), body.note || null, orderId);
     
     const updatedOrder = db.prepare('SELECT ro.*, p.name as product_name FROM reseller_orders ro JOIN products p ON p.id = ro.product_id WHERE ro.id = ?').get(orderId);
@@ -846,7 +846,7 @@ router.delete('/api/portal/orders/:id', requireReseller(async (req, res, params)
       return sendJson(res, 400, { error: 'Só é possível cancelar pedidos pendentes' });
     }
     
-    db.prepare('UPDATE reseller_orders SET status = "cancelado", updated_at = datetime("now") WHERE id = ?').run(orderId);
+    db.prepare("UPDATE reseller_orders SET status = 'cancelado', updated_at = datetime('now') WHERE id = ?").run(orderId);
     
     sendJson(res, 200, { message: 'Pedido cancelado com sucesso' });
   } catch (e) { sendJson(res, 400, { error: e.message }); }
