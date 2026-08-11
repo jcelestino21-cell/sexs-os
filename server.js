@@ -2186,6 +2186,11 @@ router.get('/app', async (req, res) => {
   // Inserir antes do </head>
   html = html.replace('</head>', injectScript + '</head>');
   
+  // Adicionar cache-busting no script e CSS
+  const timestamp = Date.now();
+  html = html.replace(/<script src="([^"]+)"/g, '<script src="$1?v=' + timestamp + '"');
+  html = html.replace(/<link rel="stylesheet" href="([^"]+)"/g, '<link rel="stylesheet" href="$1?v=' + timestamp + '"');
+  
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 });
