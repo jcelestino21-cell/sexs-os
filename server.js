@@ -3055,6 +3055,24 @@ router.post('/api/admin/update-product-prices', requireAuth(async (req, res) => 
   }
 }, { roles: ['ceo'] }));
 
+
+// Buscar todos os fechamentos de kits
+router.get('/api/kit-closures', requireAuth(async (req, res) => {
+  try {
+    const closures = db.prepare(`
+      SELECT kc.*, k.reseller_id, r.name as reseller_name
+      FROM kit_closures kc
+      JOIN kits k ON k.id = kc.kit_id
+      JOIN resellers r ON r.id = k.reseller_id
+      ORDER BY kc.created_at DESC
+    `).all();
+    
+    sendJson(res, 200, { closures });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/fix-commission-table', requireAuth(async (req, res) => {
   try {
     // Dropar tabela se existir
