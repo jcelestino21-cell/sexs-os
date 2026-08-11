@@ -167,6 +167,14 @@ function requireCapability(capability, handler) {
   });
 }
 
+// Migração: Adicionar coluna updated_at na tabela reseller_orders
+try {
+  db.exec(`ALTER TABLE reseller_orders ADD COLUMN updated_at TEXT`);
+  console.log('[Migration] Coluna updated_at adicionada à tabela reseller_orders');
+} catch (e) {
+  // Coluna já existe, ignorar
+}
+
 const router = new Router();
 
 // =============================================================================
