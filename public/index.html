@@ -341,6 +341,7 @@ async function renderApp() {
     var tabs = [];
     if (S.user.role === 'ceo') tabs.push({k:'dashboard',l:'✦ Painel'},{k:'chat',l:'Central'},{k:'proposals',l:'Pendências'});
     if (can('resellers:read')) tabs.push({k:'resellers',l:'Revendedoras'});
+    if (S.user.role === 'ceo') tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('kits:read')) tabs.push({k:'kits',l:'📦 Kits'});
     if (can('kits:read')) tabs.push({k:'products-resellers',l:'🔍 Produtos com Clientes'});
     if (can('kits:read')) tabs.push({k:'orders',l:'📋 Pedidos'});
@@ -388,7 +389,7 @@ function switchTab(tab) {
   if (idx >= 0 && btns[idx]) btns[idx].classList.add('active');
   var view = document.getElementById('v-'+tab);
   if (view) view.classList.add('active');
-  var r = {dashboard:renderDashboard,chat:renderChat,proposals:renderProposals,resellers:renderResellers,kits:renderKits,'products-resellers':renderProductsResellers,orders:renderOrders,financial:renderFinancial,stock:renderStock,kitdetails:renderKitDetails,resellerMsgs:renderResellerMessages,audit:renderAudit};
+  var r = {dashboard:renderDashboard,chat:renderChat,proposals:renderProposals,resellers:renderResellers,orders:renderOrders,kits:renderKits,'products-resellers':renderProductsResellers,financial:renderFinancial,stock:renderStock,kitdetails:renderKitDetails,resellerMsgs:renderResellerMessages,audit:renderAudit};
   if (r[tab]) r[tab]();
 }
 

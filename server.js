@@ -175,6 +175,29 @@ try {
   // Coluna já existe, ignorar
 }
 
+
+// Migração: Adicionar novos status e colunas para sistema de separação
+try {
+  db.exec(`ALTER TABLE reseller_orders ADD COLUMN quantity_separated INTEGER DEFAULT 0`);
+  console.log('[Migration] Coluna quantity_separated adicionada');
+} catch (e) {
+  // Coluna já existe
+}
+
+try {
+  db.exec(`ALTER TABLE reseller_orders ADD COLUMN kit_id INTEGER`);
+  console.log('[Migration] Coluna kit_id adicionada');
+} catch (e) {
+  // Coluna já existe
+}
+
+try {
+  console.log('[Migration] Status separados configurados');
+} catch (e) {
+  console.log('[Migration] Erro ao configurar status:', e.message);
+}
+
+
 const router = new Router();
 
 // =============================================================================
@@ -2629,6 +2652,173 @@ router.post('/api/admin/restore-orders', requireAuth(async (req, res) => {
       message: `${result.changes} pedidos restaurados para pendente`,
       restored_count: result.changes
     });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+
+// Separar itens de um pedido para kit em aberto
+router.post('/api/admin/separate-order', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const orderId = body.order_id;
+    const quantityToSeparate = body.quantity_to_separate;
+    
+    const order = db.prepare(`
+      SELECT ro.*, p.name as product_name, p.id as product_id
+      FROM reseller_orders ro
+      JOIN products p ON p.id = ro.product_id
+      WHERE ro.id = ?
+    `).get(orderId);
+    
+    if (!order) {
+      return sendJson(res, 404, { error: 'Pedido não encontrado' });
+    }
+    
+    if (order.status !== 'pendente') {
+      return sendJson(res, 400, { error: 'Só é possível separar pedidos pendentes' });
+    }
+    
+    if (quantityToSeparate > order.quantity_requested) {
+      return sendJson(res, 400, { error: 'Quantidade a separar maior que quantidade do pedido' });
+    }
+    
+    let kit = db.prepare(`
+      SELECT id FROM kits 
+      WHERE reseller_id = ? AND status = 'em_aberto'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(order.reseller_id);
+    
+    if (!kit) {
+      const result = db.prepare(`
+        INSERT INTO kits (reseller_id, status, created_by, created_at)
+        VALUES (?, 'em_aberto', ?, datetime('now'))
+      `).run(order.reseller_id, req.user.id);
+      
+      kit = { id: result.lastInsertRowid };
+    }
+    
+    db.prepare(`
+      INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents)
+      VALUES (?, ?, ?, ?)
+    `).run(kit.id, order.product_id, quantityToSeparate, order.unit_price_cents || 0);
+    
+    const remainingQuantity = order.quantity_requested - quantityToSeparate;
+    
+    if (remainingQuantity === 0) {
+      db.prepare(`
+        UPDATE reseller_orders 
+        SET status = 'separado', 
+            quantity_separated = ?,
+            kit_id = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).run(quantityToSeparate, kit.id, orderId);
+    } else {
+      db.prepare(`
+        INSERT INTO reseller_orders (reseller_id, product_id, quantity_requested, status, note, created_at)
+        VALUES (?, ?, ?, 'pendente', ?, datetime('now'))
+      `).run(order.reseller_id, order.product_id, remainingQuantity, order.note);
+      
+      db.prepare(`
+        UPDATE reseller_orders 
+        SET status = 'separado', 
+            quantity_separated = ?,
+            kit_id = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+      `).run(quantityToSeparate, kit.id, orderId);
+    }
+    
+    sendJson(res, 200, { 
+      message: `${quantityToSeparate} itens separados para kit #${kit.id}`,
+      kit_id: kit.id,
+      remaining_quantity: remainingQuantity
+    });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// Finalizar kit em aberto
+router.post('/api/kits/:id/finalize', requireAuth(async (req, res, params) => {
+  try {
+    const kitId = Number(params.id);
+    
+    const kit = db.prepare('SELECT * FROM kits WHERE id = ?').get(kitId);
+    if (!kit) {
+      return sendJson(res, 404, { error: 'Kit não encontrado' });
+    }
+    
+    if (kit.status !== 'em_aberto') {
+      return sendJson(res, 400, { error: 'Só é possível finalizar kits em aberto' });
+    }
+    
+    db.prepare(`
+      UPDATE kits 
+      SET status = 'sugerido', updated_at = datetime('now')
+      WHERE id = ?
+    `).run(kitId);
+    
+    sendJson(res, 200, { 
+      message: `Kit #${kitId} finalizado e pronto para aprovação`,
+      kit_id: kitId
+    });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// Adicionar item ao kit em aberto
+router.post('/api/kits/:id/add-item', requireAuth(async (req, res, params) => {
+  try {
+    const kitId = Number(params.id);
+    const body = await readJsonBody(req);
+    const productId = body.product_id;
+    const quantity = body.quantity;
+    
+    const kit = db.prepare('SELECT * FROM kits WHERE id = ?').get(kitId);
+    if (!kit) {
+      return sendJson(res, 404, { error: 'Kit não encontrado' });
+    }
+    
+    if (kit.status !== 'em_aberto') {
+      return sendJson(res, 400, { error: 'Só é possível adicionar itens em kits em aberto' });
+    }
+    
+    const product = db.prepare('SELECT ideal_price_cents FROM products WHERE id = ?').get(productId);
+    const price = product ? product.ideal_price_cents : 0;
+    
+    db.prepare(`
+      INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents)
+      VALUES (?, ?, ?, ?)
+    `).run(kitId, productId, quantity, price);
+    
+    sendJson(res, 200, { 
+      message: `Item adicionado ao kit #${kitId}`,
+      kit_id: kitId
+    });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// Buscar pedidos de uma revendedora específica
+router.get('/api/admin/reseller-orders/:resellerId', requireAuth((req, res, params) => {
+  try {
+    const resellerId = Number(params.resellerId);
+    
+    const orders = db.prepare(`
+      SELECT ro.*, p.name as product_name
+      FROM reseller_orders ro
+      JOIN products p ON p.id = ro.product_id
+      WHERE ro.reseller_id = ?
+      ORDER BY ro.created_at DESC
+    `).all(resellerId);
+    
+    sendJson(res, 200, { orders });
   } catch (e) {
     sendJson(res, 400, { error: e.message });
   }
