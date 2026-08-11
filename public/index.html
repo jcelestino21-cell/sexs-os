@@ -379,16 +379,39 @@ async function renderApp() {
 }
 
 function switchTab(tab) {
-  var btns = $$('.tab'); var views = $$('.view');
+  // Remove active class from all tabs and views
+  var btns = $$('.tab'); 
+  var views = $$('.view');
   btns.forEach(function(b){b.classList.remove('active')});
   views.forEach(function(v){v.classList.remove('active')});
-  // Find correct tab button
-  var tabNames = ['dashboard','chat','proposals','resellers','orders','kits','products-resellers','financial','stock','resellerMsgs','audit'];
-  var idx = tabNames.indexOf(tab);
-  if (idx >= 0 && btns[idx]) btns[idx].classList.add('active');
+  
+  // Find and activate the correct button by matching onclick
+  btns.forEach(function(btn) {
+    var onclick = btn.getAttribute('onclick');
+    if (onclick && onclick.includes("switchTab('" + tab + "')")) {
+      btn.classList.add('active');
+    }
+  });
+  
+  // Activate the correct view by ID
   var view = document.getElementById('v-'+tab);
   if (view) view.classList.add('active');
-  var r = {dashboard:renderDashboard,chat:renderChat,proposals:renderProposals,resellers:renderResellers,orders:renderOrders,kits:renderKits,'products-resellers':renderProductsResellers,financial:renderFinancial,stock:renderStock,kitdetails:renderKitDetails,resellerMsgs:renderResellerMessages,audit:renderAudit};
+  
+  // Call the render function
+  var r = {
+    dashboard:renderDashboard,
+    chat:renderChat,
+    proposals:renderProposals,
+    resellers:renderResellers,
+    orders:renderOrders,
+    kits:renderKits,
+    'products-resellers':renderProductsResellers,
+    financial:renderFinancial,
+    stock:renderStock,
+    kitdetails:renderKitDetails,
+    resellerMsgs:renderResellerMessages,
+    audit:renderAudit
+  };
   if (r[tab]) r[tab]();
 }
 
