@@ -1372,7 +1372,7 @@ async function renderPortalKits() {
     // Lista de todos os produtos juntos
     allItems.forEach(function(item) {
       html += '<div class="il"><span>'+esc(item.product_name)+'</span>';
-      html += '<span><b>'+item.quantity_available+' un</b> · R$ '+(item.unit_sale_price_cents/100).toFixed(2)+'</span></div>';
+      html += '<span><b>R$ '+(item.unit_sale_price_cents/100).toFixed(2)+'</b></span></div>';
     });
     
     // Se tem kit entregue, mostrar formulário de venda unificado
