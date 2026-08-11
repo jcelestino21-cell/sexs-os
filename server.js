@@ -3014,6 +3014,47 @@ router.post('/api/admin/update-stock-quantities', requireAuth(async (req, res) =
   }
 }, { roles: ['ceo'] }));
 
+
+// Atualizar preços de venda de produtos (em lote)
+router.post('/api/admin/update-product-prices', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const updates = body.updates || [];
+    
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return sendJson(res, 400, { error: 'Nenhuma atualização fornecida' });
+    }
+    
+    const results = [];
+    
+    for (const update of updates) {
+      const productId = update.product_id;
+      const idealPriceCents = parseInt(update.ideal_price_cents);
+      
+      if (!productId || isNaN(idealPriceCents) || idealPriceCents < 0) {
+        results.push({ product_id: productId, success: false, error: 'Dados inválidos' });
+        continue;
+      }
+      
+      const result = db.prepare('UPDATE products SET ideal_price_cents = ? WHERE id = ?')
+        .run(idealPriceCents, productId);
+      
+      if (result.changes > 0) {
+        results.push({ product_id: productId, success: true, new_price_cents: idealPriceCents });
+      } else {
+        results.push({ product_id: productId, success: false, error: 'Produto não encontrado' });
+      }
+    }
+    
+    sendJson(res, 200, { 
+      message: `${results.filter(r => r.success).length} produtos atualizados`,
+      results: results
+    });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 router.post('/api/admin/fix-commission-table', requireAuth(async (req, res) => {
   try {
     // Dropar tabela se existir
