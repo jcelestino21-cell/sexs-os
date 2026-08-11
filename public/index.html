@@ -1212,11 +1212,11 @@ async function renderPortalCatalog() {
   var v = $('#portal-catalog'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando catálogo...</div></div>';
   try {
-    var data = await api('/api/portal/catalog');
+    var data = await api('/api/portal/catalog', {token: S.token});
     var catalog = data.catalog || [];
     
     if (!catalog.length) {
-      v.innerHTML = '<div class="panel"><div class="empty">Nenhum produto no catálogo ainda. 🛍️<br><br>Seu kit precisa estar ativo para ver o catálogo.</div></div>';
+      v.innerHTML = '<div class="panel"><div class="empty">Nenhum produto disponível no momento.</div></div>';
       return;
     }
     
@@ -1237,7 +1237,7 @@ async function renderPortalCatalog() {
       html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ac);font-weight:600;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--bd)">' + esc(cat) + ' (' + items.length + ')</div>';
       
       items.forEach(function(p) {
-        var price = (p.unit_sale_price_cents || 0) / 100;
+        var price = (p.sale_price_cents || 0) / 100;
         var avail = p.available_balance || 0;
         var availColor = avail > 0 ? '#4ade80' : '#ff6b6b';
         var availText = avail > 0 ? avail + ' disponível(is)' : 'Esgotado';
