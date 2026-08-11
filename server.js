@@ -1956,23 +1956,34 @@ router.get('/api/admin/products-with-resellers', requireAuth((req, res) => {
 // RESELLER: Product catalog with prices
 router.get('/api/portal/catalog', requireReseller((req, res) => {
   try {
+    // Buscar todos os produtos disponíveis no estoque
     const products = db.prepare(`
-      SELECT DISTINCT
+      SELECT 
         p.id,
         p.name,
         p.category,
         p.description,
-        ki.unit_sale_price_cents,
-        ki.quantity_available as available_balance
+        p.photo_url,
+        p.ideal_price_cents as sale_price_cents,
+        COALESCE((SELECT SUM(quantity) FROM stock_movements WHERE product_id = p.id), 0) as physical_balance,
+        COALESCE((SELECT SUM(quantity) FROM stock_reservations WHERE product_id = p.id AND status = 'ativa'), 0) as reserved
       FROM products p
-      JOIN kit_items ki ON ki.product_id = p.id
-      JOIN kits k ON k.id = ki.kit_id
-      WHERE k.reseller_id = ?
-        AND k.status IN ('entregue', 'aguardando_fechamento')
+      WHERE p.active = 1
       ORDER BY p.category, p.name
-    `).all(req.user.reseller_id);
+    `).all();
 
-    sendJson(res, 200, { catalog: products });
+    // Formatar dados e calcular disponibilidade
+    const catalog = products.map(p => ({
+      id: p.id,
+      name: p.name,
+      category: p.category,
+      description: p.description,
+      image_url: p.photo_url,
+      sale_price_cents: p.sale_price_cents,
+      available_balance: (p.physical_balance - p.reserved) || 0
+    })).filter(p => p.available_balance > 0); // Só produtos disponíveis
+
+    sendJson(res, 200, { catalog: catalog });
   } catch (e) {
     sendJson(res, 500, { error: e.message });
   }
