@@ -892,22 +892,203 @@ function filterProdRes() {
 async function renderOrders() {
   var v = $('#v-orders'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
+  
   try {
-    var data = await api('/api/orders/consolidated');
-    if (data.demand.length) {
-      v.innerHTML = '<div class="panel"><div class="st" style="margin-top:0">📋 Pedidos das revendedoras (demanda consolidada)</div>' +
-        '<table><tr><th>Produto</th><th>Total pedido</th><th>Revendedoras</th></tr>' +
-        data.demand.map(function(d){return '<tr><td>'+esc(d.product_name)+'</td><td><b>'+d.total_requested+' un.</b></td><td>'+d.resellers_count+' revendedora(s)</td></tr>';}).join('') +
-        '</table><div class="hint" style="margin-top:12px">Esses pedidos ajudam o Diego a planejar as próximas compras de estoque.</div></div>';
-    } else {
-      v.innerHTML = '<div class="panel"><div class="empty">Nenhum pedido das revendedoras ainda. 📋<br><br>As revendedoras fazem pedidos pelo portal delas na aba "Pedidos".</div></div>';
+    // Buscar todas as revendedoras
+    var resellersResponse = await api('/api/resellers');
+    var resellers = resellersResponse.resellers || [];
+    
+    // Buscar todos os pedidos pendentes
+    var allOrders = [];
+    for (var reseller of resellers) {
+      var ordersResponse = await api('/api/admin/reseller-orders/' + reseller.id);
+      var orders = ordersResponse.orders || [];
+      var pendingOrders = orders.filter(function(o) { return o.status === 'pendente'; });
+      
+      if (pendingOrders.length > 0) {
+        allOrders.push({
+          reseller: reseller,
+          orders: pendingOrders
+        });
+      }
     }
-
-
-  } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
+    
+    // Buscar kits em aberto (sugeridos)
+    var kitsResponse = await api('/api/kits');
+    var kits = kitsResponse.kits || [];
+    var openKits = kits.filter(function(k) { return k.status === 'sugerido'; });
+    
+    var html = '<div class="panel"><div class="st" style="margin-top:0">📋 Gerenciar Pedidos</div>';
+    
+    // Mostrar kits em aberto
+    if (openKits.length > 0) {
+      html += '<div style="margin-bottom:24px">';
+      html += '<div style="font-weight:600;margin-bottom:12px;color:var(--ac)">Kits em Aberto (' + openKits.length + ')</div>';
+      
+      for (var kit of openKits) {
+        var kitDetailResponse = await api('/api/kits/' + kit.id);
+        var kitDetail = kitDetailResponse.kit;
+        var items = kitDetail.items || [];
+        
+        html += '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:2px solid var(--ac);margin-bottom:12px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
+        html += '<div><strong>Kit #' + kit.id + ' - ' + esc(kit.reseller_name) + '</strong></div>';
+        html += '<button class="btn-s" onclick="approveKit(' + kit.id + ')">✅ Aprovar Kit</button>';
+        html += '</div>';
+        
+        html += '<div style="font-size:13px;color:var(--t2);margin-bottom:8px">Itens no kit:</div>';
+        for (var item of items) {
+          html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)">';
+          html += '<span>' + esc(item.product_name) + '</span>';
+          html += '<span><strong>' + item.quantity_suggested + ' un</strong></span>';
+          html += '</div>';
+        }
+        
+        html += '<div style="margin-top:12px">';
+        html += '<button class="btn-sm" onclick="addItemToKit(' + kit.id + ')">+ Adicionar Produto</button>';
+        html += '</div>';
+        
+        html += '</div>';
+      }
+      
+      html += '</div>';
+    }
+    
+    // Mostrar pedidos por revendedora
+    if (allOrders.length > 0) {
+      html += '<div style="font-weight:600;margin-bottom:12px">Pedidos Pendentes por Revendedora</div>';
+      
+      for (var item of allOrders) {
+        var reseller = item.reseller;
+        var orders = item.orders;
+        
+        html += '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd);margin-bottom:16px">';
+        html += '<div style="font-weight:600;margin-bottom:12px">' + esc(reseller.name) + ' (' + orders.length + ' pedidos)</div>';
+        
+        for (var order of orders) {
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)">';
+          html += '<div>';
+          html += '<div style="font-weight:500">' + esc(order.product_name) + '</div>';
+          html += '<div style="font-size:12px;color:var(--t3)">Qtd: ' + order.quantity_requested + '</div>';
+          html += '</div>';
+          html += '<button class="btn-sm" onclick="openSeparateModal(' + order.id + ', ' + order.quantity_requested + ', \'' + esc(order.product_name).replace(/'/g, "\\'") + '\')">Separar</button>';
+          html += '</div>';
+        }
+        
+        html += '</div>';
+      }
+    } else {
+      html += '<div class="empty">Nenhum pedido pendente no momento.</div>';
+    }
+    
+    html += '</div>';
+    
+    // Modal de separação
+    html += '<div id="separateModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">';
+    html += '<div style="background:var(--p1);padding:24px;border-radius:var(--r2);max-width:400px;width:90%">';
+    html += '<div style="font-weight:600;margin-bottom:16px">Separar Pedido</div>';
+    html += '<div id="modalProductName" style="margin-bottom:12px"></div>';
+    html += '<div style="margin-bottom:16px">';
+    html += '<label style="display:block;margin-bottom:6px">Quantidade a separar:</label>';
+    html += '<input type="number" id="modalQuantity" min="1" style="width:100%" />';
+    html += '</div>';
+    html += '<div style="display:flex;gap:10px">';
+    html += '<button class="btn-s" onclick="confirmSeparate()" style="flex:1">Confirmar</button>';
+    html += '<button class="btn-sm" onclick="closeSeparateModal()" style="flex:1">Cancelar</button>';
+    html += '</div>';
+    html += '</div>';
+    html += '</div>';
+    
+    v.innerHTML = html;
+  } catch(e) {
+    v.innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + '</div></div>';
+  }
 }
 
-// ===== FINANCEIRO =====
+var currentOrderId = null;
+var maxQuantity = 0;
+
+function openSeparateModal(orderId, quantity, productName) {
+  currentOrderId = orderId;
+  maxQuantity = quantity;
+  document.getElementById('modalProductName').innerHTML = '<strong>' + productName + '</strong> (Qtd: ' + quantity + ')';
+  document.getElementById('modalQuantity').value = quantity;
+  document.getElementById('modalQuantity').max = quantity;
+  document.getElementById('separateModal').style.display = 'flex';
+}
+
+function closeSeparateModal() {
+  document.getElementById('separateModal').style.display = 'none';
+  currentOrderId = null;
+}
+
+async function confirmSeparate() {
+  var quantity = parseInt(document.getElementById('modalQuantity').value);
+  
+  if (!quantity || quantity < 1 || quantity > maxQuantity) {
+    toast('Quantidade inválida');
+    return;
+  }
+  
+  try {
+    await api('/api/admin/separate-order', {
+      method: 'POST',
+      body: JSON.stringify({
+        order_id: currentOrderId,
+        quantity_to_separate: quantity
+      })
+    });
+    
+    toast('Itens separados com sucesso!', 'ok');
+    closeSeparateModal();
+    renderOrders();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+}
+
+async function approveKit(kitId) {
+  if (!confirm('Aprovar este kit? Ele ficará pronto para entrega.')) return;
+  
+  try {
+    await api('/api/kits/' + kitId + '/approve', {
+      method: 'POST'
+    });
+    
+    toast('Kit aprovado com sucesso!', 'ok');
+    renderOrders();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+}
+
+async function addItemToKit(kitId) {
+  var productsResponse = await api('/api/products');
+  var products = productsResponse.products || [];
+  
+  var productId = prompt('Selecione o ID do produto:\n\n' + products.map(function(p) { return p.id + ' - ' + p.name; }).join('\n'));
+  
+  if (!productId) return;
+  
+  var quantity = prompt('Quantidade:');
+  if (!quantity) return;
+  
+  try {
+    await api('/api/kits/' + kitId + '/add-item', {
+      method: 'POST',
+      body: JSON.stringify({
+        product_id: parseInt(productId),
+        quantity: parseInt(quantity)
+      })
+    });
+    
+    toast('Item adicionado ao kit!', 'ok');
+    renderOrders();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+}
+
 async function renderFinancial() {
   var v = $('#v-financial'); if(!v) return;
   try {
