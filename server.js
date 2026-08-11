@@ -13,6 +13,14 @@ loadEnv();
 const backupService = require('./src/backupService');
 
 const db = require('./db');
+
+// Migração: Adicionar coluna quantity_fulfilled na tabela reseller_orders
+try {
+  db.exec(`ALTER TABLE reseller_orders ADD COLUMN quantity_fulfilled INTEGER DEFAULT 0`);
+  console.log('[Migration] Coluna quantity_fulfilled adicionada à tabela reseller_orders');
+} catch (e) {
+  // Coluna já existe, ignorar
+}
 const Router = require('./src/router');
 const auth = require('./src/auth');
 const { logAudit } = require('./src/audit');
@@ -810,6 +818,45 @@ router.post('/api/portal/orders', requireReseller(async (req, res) => {
   try {
     const order = ordersService.createOrder({ resellerId: req.user.reseller_id, productId: Number(body.product_id), quantity: Number(body.quantity), note: body.note });
     sendJson(res, 200, { order });
+  } catch (e) { sendJson(res, 400, { error: e.message }); }
+}));
+
+// Editar pedido (apenas se ainda pendente)
+router.put('/api/portal/orders/:id', requireReseller(async (req, res, params) => {
+  const body = await readJsonBody(req);
+  const orderId = Number(params.id);
+  try {
+    const order = db.prepare('SELECT * FROM reseller_orders WHERE id = ? AND reseller_id = ?').get(orderId, req.user.reseller_id);
+    if (!order) {
+      return sendJson(res, 404, { error: 'Pedido não encontrado' });
+    }
+    if (order.status !== 'pendente') {
+      return sendJson(res, 400, { error: 'Só é possível editar pedidos pendentes' });
+    }
+    
+    db.prepare('UPDATE reseller_orders SET quantity_requested = ?, note = ?, updated_at = datetime("now") WHERE id = ?')
+      .run(Number(body.quantity), body.note || null, orderId);
+    
+    const updatedOrder = db.prepare('SELECT ro.*, p.name as product_name FROM reseller_orders ro JOIN products p ON p.id = ro.product_id WHERE ro.id = ?').get(orderId);
+    sendJson(res, 200, { order: updatedOrder });
+  } catch (e) { sendJson(res, 400, { error: e.message }); }
+}));
+
+// Cancelar pedido (apenas se ainda pendente)
+router.delete('/api/portal/orders/:id', requireReseller(async (req, res, params) => {
+  const orderId = Number(params.id);
+  try {
+    const order = db.prepare('SELECT * FROM reseller_orders WHERE id = ? AND reseller_id = ?').get(orderId, req.user.reseller_id);
+    if (!order) {
+      return sendJson(res, 404, { error: 'Pedido não encontrado' });
+    }
+    if (order.status !== 'pendente') {
+      return sendJson(res, 400, { error: 'Só é possível cancelar pedidos pendentes' });
+    }
+    
+    db.prepare('UPDATE reseller_orders SET status = "cancelado", updated_at = datetime("now") WHERE id = ?').run(orderId);
+    
+    sendJson(res, 200, { message: 'Pedido cancelado com sucesso' });
   } catch (e) { sendJson(res, 400, { error: e.message }); }
 }));
 

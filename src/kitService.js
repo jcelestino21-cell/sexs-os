@@ -129,6 +129,48 @@ function approveKit(kitId, ceoUser) {
         .run(item.product_id, kitId, item.quantity_suggested);
     }
     db.prepare(`UPDATE kits SET status = 'aprovado', approved_by = ?, approved_at = datetime('now') WHERE id = ?`).run(ceoUser.id, kitId);
+    
+    // Dar baixa automática nos pedidos pendentes da revendedora
+    for (const item of kit.items) {
+      let kitQuantity = item.quantity_suggested;
+      
+      const pendingOrders = db.prepare(`
+        SELECT id, quantity_requested 
+        FROM reseller_orders 
+        WHERE reseller_id = ? 
+          AND product_id = ? 
+          AND status = 'pendente'
+        ORDER BY created_at ASC
+      `).all(kit.reseller_id, item.product_id);
+      
+      for (const order of pendingOrders) {
+        if (kitQuantity <= 0) break;
+        
+        const quantityToFulfill = Math.min(kitQuantity, order.quantity_requested);
+        const remainingQuantity = order.quantity_requested - quantityToFulfill;
+        
+        if (remainingQuantity === 0) {
+          db.prepare(`
+            UPDATE reseller_orders 
+            SET status = 'atendido', 
+                quantity_fulfilled = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+          `).run(quantityToFulfill, order.id);
+        } else {
+          db.prepare(`
+            UPDATE reseller_orders 
+            SET quantity_requested = ?,
+                quantity_fulfilled = COALESCE(quantity_fulfilled, 0) + ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+          `).run(remainingQuantity, quantityToFulfill, order.id);
+        }
+        
+        kitQuantity -= quantityToFulfill;
+      }
+    }
+    
     logAudit({ actorUserId: ceoUser.id, actorLabel: 'CEO', action: 'kit.approved', entityType: 'kit', entityId: kitId, details: { reserved: kit.items.map(i => ({ product_id: i.product_id, quantity: i.quantity_suggested })) } });
     db.exec('COMMIT');
     return getKit(kitId);

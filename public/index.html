@@ -1296,12 +1296,18 @@ async function renderPortalOrders() {
     var ordersHtml = '';
     if (ordersData.orders && ordersData.orders.length > 0) {
       ordersHtml = '<div class="panel"><div class="st" style="margin-top:0">Meus Pedidos (' + ordersData.orders.length + ')</div>' +
-        '<table style="width:100%;font-size:13px"><tr><th>Produto</th><th style="text-align:center">Qtd</th><th>Status</th><th>Quando</th></tr>' +
+        '<table style="width:100%;font-size:13px"><tr><th>Produto</th><th style="text-align:center">Qtd</th><th>Status</th><th>Quando</th><th style="text-align:center">Ações</th></tr>' +
         ordersData.orders.map(function(o){
+          var actions = '';
+          if (o.status === 'pendente') {
+            actions = '<button class="btn-sm" onclick="editOrder(' + o.id + ', ' + o.quantity_requested + ')" style="margin-right:4px">✏️</button>' +
+                      '<button class="btn-sm" onclick="cancelOrder(' + o.id + ')" style="background:#ff6b6b;color:white">🗑️</button>';
+          }
           return '<tr><td>'+esc(o.product_name || 'Produto #'+o.product_id)+'</td>' +
             '<td style="text-align:center;font-weight:600">'+o.quantity_requested+'</td>' +
             '<td><span style="color:'+(statusColors[o.status]||'var(--t2)')+'">'+esc(statusLabels[o.status]||o.status)+'</span></td>' +
-            '<td style="color:var(--t3);font-size:11px">'+esc(o.created_at || '')+'</td></tr>';
+            '<td style="color:var(--t3);font-size:11px">'+esc(o.created_at || '')+'</td>' +
+            '<td style="text-align:center">'+actions+'</td></tr>';
         }).join('') + '</table></div>';
     } else {
       ordersHtml = '<div class="panel"><div class="empty">Nenhum pedido feito ainda. Use o formulário acima para pedir produtos! 📋</div></div>';
@@ -1320,6 +1326,27 @@ async function submitOrder() {
   try {
     await api('/api/portal/orders', {method:'POST', token:S.token, body:JSON.stringify({product_id: productId, quantity: qty, note: note})});
     toast('Pedido enviado! ✅', 'ok');
+    renderPortalOrders();
+  } catch(e) { toast(e.message); }
+}
+
+async function editOrder(orderId, currentQty) {
+  var newQty = prompt('Nova quantidade:', currentQty);
+  if (!newQty || isNaN(newQty) || Number(newQty) < 1) return;
+  
+  try {
+    await api('/api/portal/orders/' + orderId, {method:'PUT', token:S.token, body:JSON.stringify({quantity: Number(newQty)})});
+    toast('Pedido atualizado! ✅', 'ok');
+    renderPortalOrders();
+  } catch(e) { toast(e.message); }
+}
+
+async function cancelOrder(orderId) {
+  if (!confirm('Tem certeza que deseja cancelar este pedido?')) return;
+  
+  try {
+    await api('/api/portal/orders/' + orderId, {method:'DELETE', token:S.token});
+    toast('Pedido cancelado! ✅', 'ok');
     renderPortalOrders();
   } catch(e) { toast(e.message); }
 }
