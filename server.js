@@ -2547,3 +2547,31 @@ router.get('/api/portal/commission-history', requireReseller((req, res) => {
     sendJson(res, 500, { error: e.message });
   }
 }));
+
+// TEMP: Corrigir estrutura da tabela commission_payments
+router.post('/api/admin/fix-commission-table', requireAuth(async (req, res) => {
+  try {
+    // Dropar tabela se existir
+    db.exec('DROP TABLE IF EXISTS commission_payments');
+    
+    // Criar tabela com estrutura correta
+    db.exec(`
+      CREATE TABLE commission_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kit_id INTEGER NOT NULL,
+        reseller_id INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        paid_at TEXT NOT NULL DEFAULT (datetime('now')),
+        paid_by INTEGER NOT NULL,
+        notes TEXT,
+        FOREIGN KEY (kit_id) REFERENCES kits(id),
+        FOREIGN KEY (reseller_id) REFERENCES resellers(id),
+        FOREIGN KEY (paid_by) REFERENCES users(id)
+      )
+    `);
+    
+    sendJson(res, 200, { ok: true, message: 'Tabela commission_payments recriada com sucesso' });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
