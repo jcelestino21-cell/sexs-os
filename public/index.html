@@ -583,7 +583,7 @@ async function renderKits() {
         else if (k.status === 'em_preparacao') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button></div>';
         else if (k.status === 'entregue') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="kitAction('+k.id+',\'request-closure\')">Solicitar fechamento</button></div>';
         else if (k.status === 'aguardando_fechamento') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="finalizeAndClose('+k.id+')">✅ Conferir e Fechar</button><button class="reject" onclick="forceCloseKit('+k.id+')">⚡ Forçar</button></div>';
-        else if (k.status === 'encerrado') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button></div>';
+        else if (k.status === 'encerrado') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" style="background:#10b981;border-color:#10b981" onclick="confirmPayment('+k.id+')">💰 Confirmar Pagamento</button></div>';
 
         kitsHtml += '<div class="kit-card"><span class="pill">' + (statusLabels[k.status]||k.status) + '</span>' +
           '<h3>Kit #' + k.id + ' — ' + esc(k.reseller_name||'') + ' (ciclo ' + k.cycle_number + ')</h3>' +
@@ -761,6 +761,28 @@ async function toggleKitDetails(kitId) {
     }
   } else {
     div.style.display = 'none';
+  }
+}
+
+
+// Confirmar pagamento de kit
+async function confirmPayment(kitId) {
+  if (!confirm('Confirmar pagamento da comissão deste kit?')) return;
+  
+  try {
+    const response = await api('/api/admin/kits/' + kitId + '/confirm-payment', {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+    
+    if (response.ok) {
+      toast('Pagamento confirmado com sucesso!', 'ok');
+      renderKits();
+    } else {
+      toast(response.error || 'Erro ao confirmar pagamento');
+    }
+  } catch(e) {
+    toast('Erro: ' + e.message);
   }
 }
 
@@ -1403,6 +1425,11 @@ async function renderPortalSales() {
     var sales = data.sales || [];
     var f = function(c) { return 'R$ ' + ((c||0)/100).toFixed(2); };
 
+    // Buscar histórico de comissões
+    var historyData = await api('/api/portal/commission-history', {token: S.token});
+    var totalReceived = historyData.total_received_cents || 0;
+    var totalPayments = historyData.total_payments || 0;
+
     var summaryHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">' +
       '<div style="background:var(--p2);padding:14px;border-radius:var(--r2);border:1px solid var(--bd)">' +
         '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📦 Itens Vendidos</div>' +
@@ -1415,6 +1442,13 @@ async function renderPortalSales() {
       '<div style="background:var(--p2);padding:14px;border-radius:var(--r2);border:1px solid rgba(148,184,138,.25)">' +
         '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">🏆 Minha Comissão (' + Math.round((s.commission_pct||0)*100) + '%)</div>' +
         '<div style="font-size:22px;font-weight:700;color:#4ade80;margin-top:4px">' + f(s.commission_earned_cents) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="margin-bottom:20px">' +
+      '<div style="background:linear-gradient(135deg, #10b981, #059669);padding:20px;border-radius:var(--r2);color:white">' +
+        '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;margin-bottom:8px">💎 Total de Comissões Recebidas</div>' +
+        '<div style="font-size:32px;font-weight:700;margin-bottom:4px">' + f(totalReceived) + '</div>' +
+        '<div style="font-size:13px;opacity:0.9">' + totalPayments + ' pagamentos confirmados</div>' +
       '</div>' +
     '</div>';
 

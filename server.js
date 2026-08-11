@@ -2439,3 +2439,111 @@ router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res, params) => {
     sendJson(res, 500, { error: e.message });
   }
 }, { roles: ['ceo'] }));
+
+// ===== PAGAMENTOS E COMISSÕES =====
+
+// ADMIN: Confirmar pagamento de kit e registrar comissão paga
+router.post('/api/admin/kits/:id/confirm-payment', requireAuth(async (req, res, params) => {
+  try {
+    const kitId = Number(params.id);
+    const body = await readJsonBody(req);
+    const commissionAmount = body.commission_amount; // em cents
+    
+    // Buscar kit
+    const kit = db.prepare('SELECT * FROM kits WHERE id = ?').get(kitId);
+    if (!kit) {
+      return sendJson(res, 404, { error: 'Kit não encontrado' });
+    }
+    
+    if (kit.status !== 'encerrado') {
+      return sendJson(res, 400, { error: 'Só é possível confirmar pagamento de kits encerrados' });
+    }
+    
+    // Buscar closure do kit
+    const closure = db.prepare('SELECT * FROM kit_closures WHERE kit_id = ?').get(kitId);
+    if (!closure) {
+      return sendJson(res, 404, { error: 'Fechamento do kit não encontrado' });
+    }
+    
+    // Verificar se já foi pago
+    const existingPayment = db.prepare('SELECT * FROM commission_payments WHERE kit_id = ?').get(kitId);
+    if (existingPayment) {
+      return sendJson(res, 400, { error: 'Pagamento já foi confirmado para este kit' });
+    }
+    
+    // Criar tabela commission_payments se não existir
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS commission_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kit_id INTEGER NOT NULL,
+        reseller_id INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        paid_at TEXT NOT NULL DEFAULT (datetime('now')),
+        paid_by INTEGER NOT NULL,
+        notes TEXT,
+        FOREIGN KEY (kit_id) REFERENCES kits(id),
+        FOREIGN KEY (reseller_id) REFERENCES resellers(id),
+        FOREIGN KEY (paid_by) REFERENCES users(id)
+      )
+    `);
+    
+    // Registrar pagamento
+    const commissionCents = commissionAmount || closure.total_commission_cents;
+    const result = db.prepare(`
+      INSERT INTO commission_payments (kit_id, reseller_id, amount_cents, paid_by, notes)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(kitId, kit.reseller_id, commissionCents, req.user.id, 'Pagamento confirmado via painel');
+    
+    sendJson(res, 200, {
+      ok: true,
+      payment_id: result.lastInsertRowid,
+      kit_id: kitId,
+      reseller_id: kit.reseller_id,
+      amount_cents: commissionCents,
+      message: 'Pagamento confirmado com sucesso'
+    });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// RESELLER: Buscar histórico de comissões recebidas
+router.get('/api/portal/commission-history', requireReseller((req, res) => {
+  try {
+    // Criar tabela se não existir
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS commission_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kit_id INTEGER NOT NULL,
+        reseller_id INTEGER NOT NULL,
+        amount_cents INTEGER NOT NULL,
+        paid_at TEXT NOT NULL DEFAULT (datetime('now')),
+        paid_by INTEGER NOT NULL,
+        notes TEXT,
+        FOREIGN KEY (kit_id) REFERENCES kits(id),
+        FOREIGN KEY (reseller_id) REFERENCES resellers(id),
+        FOREIGN KEY (paid_by) REFERENCES users(id)
+      )
+    `);
+    
+    // Buscar pagamentos da revendedora
+    const payments = db.prepare(`
+      SELECT cp.*, k.cycle_number, k.closed_at
+      FROM commission_payments cp
+      JOIN kits k ON k.id = cp.kit_id
+      WHERE cp.reseller_id = ?
+      ORDER BY cp.paid_at DESC
+    `).all(req.user.reseller_id);
+    
+    // Calcular total
+    const totalReceived = payments.reduce((sum, p) => sum + p.amount_cents, 0);
+    
+    sendJson(res, 200, {
+      payments: payments,
+      total_received_cents: totalReceived,
+      total_payments: payments.length
+    });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}));
