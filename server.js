@@ -250,6 +250,53 @@ try {
 }
 
 
+
+// Migração: Adicionar status 'separado' à tabela reseller_orders
+try {
+  const hasSeparado = db.prepare("SELECT COUNT(*) as count FROM reseller_orders WHERE status = 'separado'").get();
+  
+  if (hasSeparado.count === 0) {
+    // Criar tabela temporária com nova constraint
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS reseller_orders_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reseller_id INTEGER NOT NULL,
+        product_id INTEGER NOT NULL,
+        quantity_requested INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente','atendido','cancelado','separado')),
+        note TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT,
+        quantity_fulfilled INTEGER DEFAULT 0,
+        quantity_separated INTEGER DEFAULT 0,
+        kit_id INTEGER,
+        FOREIGN KEY (reseller_id) REFERENCES resellers(id),
+        FOREIGN KEY (product_id) REFERENCES products(id),
+        FOREIGN KEY (kit_id) REFERENCES kits(id)
+      )
+    `);
+    
+    // Copiar dados da tabela antiga
+    db.exec(`
+      INSERT INTO reseller_orders_new 
+      SELECT * FROM reseller_orders
+    `);
+    
+    // Dropar tabela antiga
+    db.exec(`DROP TABLE reseller_orders`);
+    
+    // Renomear tabela nova
+    db.exec(`ALTER TABLE reseller_orders_new RENAME TO reseller_orders`);
+    
+    console.log('[Migration] Status separado adicionado à tabela reseller_orders');
+  } else {
+    console.log('[Migration] Status separado já existe');
+  }
+} catch (e) {
+  console.log('[Migration] Erro ao adicionar status separado:', e.message);
+}
+
+
 const router = new Router();
 
 // =============================================================================
