@@ -150,21 +150,21 @@ function approveKit(kitId, ceoUser) {
         const remainingQuantity = order.quantity_requested - quantityToFulfill;
         
         if (remainingQuantity === 0) {
+          // Pedido totalmente atendido - marcar como atendido
           db.prepare(`
             UPDATE reseller_orders 
-            SET status = 'atendido', 
-                quantity_fulfilled = ?,
+            SET status = 'atendido',
                 updated_at = datetime('now')
             WHERE id = ?
-          `).run(quantityToFulfill, order.id);
+          `).run(order.id);
         } else {
+          // Pedido parcialmente atendido - reduzir quantidade pendente
           db.prepare(`
             UPDATE reseller_orders 
             SET quantity_requested = ?,
-                quantity_fulfilled = COALESCE(quantity_fulfilled, 0) + ?,
                 updated_at = datetime('now')
             WHERE id = ?
-          `).run(remainingQuantity, quantityToFulfill, order.id);
+          `).run(remainingQuantity, order.id);
         }
         
         kitQuantity -= quantityToFulfill;

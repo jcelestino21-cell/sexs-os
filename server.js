@@ -13,14 +13,6 @@ loadEnv();
 const backupService = require('./src/backupService');
 
 const db = require('./db');
-
-// Migração: Adicionar coluna quantity_fulfilled na tabela reseller_orders
-try {
-  db.exec(`ALTER TABLE reseller_orders ADD COLUMN quantity_fulfilled INTEGER DEFAULT 0`);
-  console.log('[Migration] Coluna quantity_fulfilled adicionada à tabela reseller_orders');
-} catch (e) {
-  // Coluna já existe, ignorar
-}
 const Router = require('./src/router');
 const auth = require('./src/auth');
 const { logAudit } = require('./src/audit');
