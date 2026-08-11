@@ -383,7 +383,7 @@ function switchTab(tab) {
   btns.forEach(function(b){b.classList.remove('active')});
   views.forEach(function(v){v.classList.remove('active')});
   // Find correct tab button
-  var tabNames = ['dashboard','chat','proposals','resellers','kits','products-resellers','orders','financial','stock','kitdetails','resellerMsgs','audit'];
+  var tabNames = ['dashboard','chat','proposals','resellers','orders','kits','products-resellers','financial','stock','resellerMsgs','audit'];
   var idx = tabNames.indexOf(tab);
   if (idx >= 0 && btns[idx]) btns[idx].classList.add('active');
   var view = document.getElementById('v-'+tab);
