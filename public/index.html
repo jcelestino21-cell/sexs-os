@@ -344,7 +344,6 @@ async function renderApp() {
     if (S.user.role === 'ceo') tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('kits:read')) tabs.push({k:'kits',l:'📦 Kits'});
     if (can('kits:read')) tabs.push({k:'products-resellers',l:'🔍 Produtos com Clientes'});
-    if (can('kits:read')) tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('financial:read')) tabs.push({k:'financial',l:'💰 Financeiro'});
     if (can('stock:read')) tabs.push({k:'stock',l:'📦 Estoque'});
     
