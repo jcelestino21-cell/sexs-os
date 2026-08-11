@@ -2736,9 +2736,10 @@ router.post('/api/admin/separate-order', requireAuth(async (req, res) => {
       return sendJson(res, 400, { error: 'Quantidade a separar maior que quantidade do pedido' });
     }
     
+    // Buscar kit em aberto (status 'sugerido' sem itens ainda ou com flag de aberto)
     let kit = db.prepare(`
       SELECT id FROM kits 
-      WHERE reseller_id = ? AND status = 'em_aberto'
+      WHERE reseller_id = ? AND status = 'sugerido' AND created_at > datetime('now', '-1 hour')
       ORDER BY created_at DESC
       LIMIT 1
     `).get(order.reseller_id);
@@ -2756,7 +2757,7 @@ router.post('/api/admin/separate-order', requireAuth(async (req, res) => {
       
       const result = db.prepare(`
         INSERT INTO kits (reseller_id, status, cycle_number, created_by, created_at)
-        VALUES (?, 'em_aberto', ?, ?, datetime('now'))
+        VALUES (?, 'sugerido', ?, ?, datetime('now'))
       `).run(order.reseller_id, nextCycle, req.user.id);
       
       kit = { id: result.lastInsertRowid };
@@ -2814,8 +2815,8 @@ router.post('/api/kits/:id/finalize', requireAuth(async (req, res, params) => {
       return sendJson(res, 404, { error: 'Kit não encontrado' });
     }
     
-    if (kit.status !== 'em_aberto') {
-      return sendJson(res, 400, { error: 'Só é possível finalizar kits em aberto' });
+    if (kit.status !== 'sugerido') {
+      return sendJson(res, 400, { error: 'Só é possível finalizar kits sugeridos' });
     }
     
     db.prepare(`
@@ -2846,8 +2847,8 @@ router.post('/api/kits/:id/add-item', requireAuth(async (req, res, params) => {
       return sendJson(res, 404, { error: 'Kit não encontrado' });
     }
     
-    if (kit.status !== 'em_aberto') {
-      return sendJson(res, 400, { error: 'Só é possível adicionar itens em kits em aberto' });
+    if (kit.status !== 'sugerido') {
+      return sendJson(res, 400, { error: 'Só é possível adicionar itens em kits sugeridos' });
     }
     
     const product = db.prepare('SELECT ideal_price_cents FROM products WHERE id = ?').get(productId);
