@@ -2692,10 +2692,20 @@ router.post('/api/admin/separate-order', requireAuth(async (req, res) => {
     `).get(order.reseller_id);
     
     if (!kit) {
+      // Buscar próximo cycle_number para esta revendedora
+      const lastKit = db.prepare(`
+        SELECT cycle_number FROM kits 
+        WHERE reseller_id = ? 
+        ORDER BY cycle_number DESC 
+        LIMIT 1
+      `).get(order.reseller_id);
+      
+      const nextCycle = lastKit ? lastKit.cycle_number + 1 : 1;
+      
       const result = db.prepare(`
-        INSERT INTO kits (reseller_id, status, created_by, created_at)
-        VALUES (?, 'em_aberto', ?, datetime('now'))
-      `).run(order.reseller_id, req.user.id);
+        INSERT INTO kits (reseller_id, status, cycle_number, created_by, created_at)
+        VALUES (?, 'em_aberto', ?, ?, datetime('now'))
+      `).run(order.reseller_id, nextCycle, req.user.id);
       
       kit = { id: result.lastInsertRowid };
     }
