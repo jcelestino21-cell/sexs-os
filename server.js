@@ -198,6 +198,58 @@ try {
 }
 
 
+
+// Migração: Adicionar status 'em_aberto' à tabela kits
+try {
+  // SQLite não permite alterar CHECK constraint diretamente
+  // Precisamos recriar a tabela com a nova constraint
+  
+  // Verificar se já tem kits com status 'em_aberto'
+  const hasEmAberto = db.prepare("SELECT COUNT(*) as count FROM kits WHERE status = 'em_aberto'").get();
+  
+  if (hasEmAberto.count === 0) {
+    // Criar tabela temporária com nova constraint
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS kits_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reseller_id INTEGER NOT NULL,
+        cycle_number INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'sugerido' CHECK(status IN ('sugerido','aprovado','em_preparacao','entregue','aguardando_fechamento','encerrado','rejeitado','em_aberto')),
+        created_by INTEGER,
+        approved_by INTEGER,
+        approved_at TEXT,
+        delivered_at TEXT,
+        closure_requested_at TEXT,
+        closed_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT,
+        FOREIGN KEY (reseller_id) REFERENCES resellers(id),
+        FOREIGN KEY (created_by) REFERENCES users(id),
+        FOREIGN KEY (approved_by) REFERENCES users(id)
+      )
+    `);
+    
+    // Copiar dados da tabela antiga
+    db.exec(`
+      INSERT INTO kits_new 
+      SELECT * FROM kits
+    `);
+    
+    // Dropar tabela antiga
+    db.exec(`DROP TABLE kits`);
+    
+    // Renomear tabela nova
+    db.exec(`ALTER TABLE kits_new RENAME TO kits`);
+    
+    console.log('[Migration] Status em_aberto adicionado à tabela kits');
+  } else {
+    console.log('[Migration] Status em_aberto já existe');
+  }
+} catch (e) {
+  console.log('[Migration] Erro ao adicionar status em_aberto:', e.message);
+}
+
+
 const router = new Router();
 
 // =============================================================================
