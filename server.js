@@ -1228,6 +1228,108 @@ router.get('/api/dashboard', requireAuth((req, res) => {
   sendJson(res, 200, { dashboard: dashboardService.getDashboard() });
 }, { roles: ['ceo'] }));
 
+// ---- Dashboard Charts (dados para gráficos) ----
+router.get('/api/dashboard/charts', requireAuth((req, res) => {
+  try {
+    const kitService = require('./src/kitService');
+    
+    // 1. Vendas por revendedora (ranking)
+    const ranking = kitService.rankingFull();
+    const salesByReseller = ranking.map(r => ({
+      name: r.name,
+      total_cents: r.total_cents,
+      kits_closed: r.kits_closed || 0
+    }));
+    
+    // 2. Tendência de vendas (últimos 6 meses)
+    const salesTrend = db.prepare(`
+      SELECT 
+        strftime('%Y-%m', closed_at) as month,
+        SUM(kc.total_sold_confirmed_cents) as total_cents,
+        COUNT(DISTINCT k.id) as kits_count
+      FROM kits k
+      JOIN kit_closures kc ON kc.kit_id = k.id
+      WHERE k.status = 'encerrado' AND k.closed_at IS NOT NULL
+      GROUP BY month
+      ORDER BY month DESC
+      LIMIT 6
+    `).all().reverse();
+    
+    // 3. Top produtos vendidos
+    const topProducts = db.prepare(`
+      SELECT p.name, SUM(ks.quantity) as units_sold, SUM(ks.quantity * ks.unit_price_cents) as revenue_cents
+      FROM kit_sales ks
+      JOIN kit_items ki ON ki.id = ks.kit_item_id
+      JOIN products p ON p.id = ki.product_id
+      WHERE ks.status = 'confirmada'
+      GROUP BY p.id
+      ORDER BY units_sold DESC
+      LIMIT 10
+    `).all();
+    
+    // 4. Status dos kits
+    const kitsByStatus = db.prepare('SELECT status, COUNT(*) as count FROM kits GROUP BY status').all();
+    
+    // 5. Alertas
+    const alerts = [];
+    
+    // Kits que vão fechar em breve (próximos 7 dias)
+    const kitsToExpire = db.prepare(`
+      SELECT k.id, r.name as reseller_name, k.created_at,
+             julianday('now') - julianday(k.created_at) as days_old
+      FROM kits k
+      JOIN resellers r ON r.id = k.reseller_id
+      WHERE k.status IN ('entregue', 'aguardando_fechamento')
+        AND julianday('now') - julianday(k.created_at) > 23
+      ORDER BY days_old DESC
+      LIMIT 5
+    `).all();
+    
+    kitsToExpire.forEach(k => {
+      const daysLeft = Math.max(0, 30 - Math.floor(k.days_old));
+      alerts.push({
+        type: 'warning',
+        message: `Kit da ${k.reseller_name} fecha em ${daysLeft} dias`,
+        icon: '⏰'
+      });
+    });
+    
+    // Estoque baixo
+    const lowStock = db.prepare(`
+      SELECT p.name, 
+             COALESCE((SELECT SUM(quantity) FROM stock_movements m WHERE m.product_id = p.id), 0)
+             - COALESCE((SELECT SUM(quantity) FROM stock_reservations WHERE product_id = p.id AND status = 'ativa'), 0) as available,
+             p.low_stock_threshold
+      FROM products p
+      WHERE p.active = 1
+        AND (COALESCE((SELECT SUM(quantity) FROM stock_movements m WHERE m.product_id = p.id), 0)
+             - COALESCE((SELECT SUM(quantity) FROM stock_reservations WHERE product_id = p.id AND status = 'ativa'), 0)) <= p.low_stock_threshold
+      ORDER BY available ASC
+      LIMIT 5
+    `).all();
+    
+    lowStock.forEach(p => {
+      alerts.push({
+        type: 'danger',
+        message: `${p.name}: apenas ${p.available} unidades (mínimo: ${p.low_stock_threshold})`,
+        icon: '⚠️'
+      });
+    });
+    
+    sendJson(res, 200, {
+      charts: {
+        sales_by_reseller: salesByReseller,
+        sales_trend: salesTrend,
+        top_products: topProducts,
+        kits_by_status: kitsByStatus
+      },
+      alerts: alerts
+    });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 // ---- Financeiro ----
 router.get('/api/financial/summary', requireCapability('financial:read', (req, res) => {
   sendJson(res, 200, { summary: financeService.financialSummary() });

@@ -89,18 +89,9 @@ select{background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-r
 .pa{display:flex;gap:10px;margin-top:14px}
 .pa button{font-size:12px;padding:8px 18px;border-radius:var(--r1);border:1px solid var(--bds);background:var(--p1);color:var(--t1);cursor:pointer;font-family:inherit;transition:var(--tr)}
 .pa .approve{background:var(--sc);border-color:var(--sc);color:var(--bg)}.pa .reject{background:var(--dg);border-color:var(--dg);color:var(--bg)}
-#anaBtn{position:fixed;bottom:24px;right:24px;width:60px;height:60px;border-radius:50%;background:var(--ag);color:var(--bg);border:none;box-shadow:0 4px 20px rgba(0,0,0,.4);font-size:24px;cursor:pointer;z-index:200;display:flex;align-items:center;justify-content:center}
-#anaBtn .dot{position:absolute;top:4px;right:4px;width:12px;height:12px;border-radius:50%;background:var(--dg);border:2px solid var(--bg);display:none}
-#anaPanel{position:fixed;bottom:96px;right:24px;width:380px;max-width:calc(100vw - 48px);max-height:70vh;background:var(--p1);border:1px solid var(--bds);border-radius:var(--r3);box-shadow:0 8px 40px rgba(0,0,0,.5);z-index:200;display:flex;flex-direction:column;overflow:hidden}
-#anaPanel .aw-hdr{padding:16px 18px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;background:var(--p2)}
-#anaPanel .aw-hdr b{font-family:'Playfair Display',serif;font-size:15px;color:var(--ac)}
-#anaPanel .aw-close{background:none;border:none;color:var(--t3);cursor:pointer;font-size:16px}
-#anaPanel .aw-msgs{flex:1;overflow-y:auto;padding:16px;max-height:42vh}
-#anaPanel .aw-compose{display:flex;gap:8px;padding:14px 16px;border-top:1px solid var(--bd);background:var(--p2)}
-#anaPanel .aw-compose input{margin:0;flex:1;font-size:13px}
-#anaPanel .aw-compose button{background:var(--ag);color:var(--bg);border:none;border-radius:var(--r1);padding:0 18px;font-weight:600;cursor:pointer;font-size:13px}
-@media(max-width:720px){.app{padding:16px 14px 60px}.hdr{flex-direction:column;align-items:flex-start;gap:12px}.layout{grid-template-columns:1fr}.council{display:flex;overflow-x:auto;gap:8px;padding:12px;position:static}.council h2{display:none}.dir{flex-direction:column;text-align:center;gap:4px;min-width:68px;flex-shrink:0;border-left:none;border-bottom:3px solid transparent}.dir.active{border-bottom-color:var(--ac)}.dir .role{display:none}.dg{grid-template-columns:1fr 1fr}.transcript{max-height:46vh}.lw{margin:4vh auto;max-width:92vw;padding:32px 24px}.lw-logo{width:160px}#anaPanel{right:12px;bottom:88px;width:calc(100vw - 24px)}}
+@media(max-width:720px){.app{padding:16px 14px 60px}.hdr{flex-direction:column;align-items:flex-start;gap:12px}.layout{grid-template-columns:1fr}.council{display:flex;overflow-x:auto;gap:8px;padding:12px;position:static}.council h2{display:none}.dir{flex-direction:column;text-align:center;gap:4px;min-width:68px;flex-shrink:0;border-left:none;border-bottom:3px solid transparent}.dir.active{border-bottom-color:var(--ac)}.dir .role{display:none}.dg{grid-template-columns:1fr 1fr}.transcript{max-height:46vh}.lw{margin:4vh auto;max-width:92vw;padding:32px 24px}.lw-logo{width:160px}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div id="app" class="app">
@@ -354,8 +345,6 @@ async function renderApp() {
     root.innerHTML = '<div class="hdr"><div class="hdr-brand"><img src="/logo-sm.png" alt="SexS" class="hdr-logo" /><div><div class="hdr-title">Central da CEO</div><div class="hdr-sub">Bem-vinda' + (S.user.role==='ceo'?'':', '+esc(S.user.name)) + '</div></div></div><div class="hdr-actions"><button class="logout" onclick="logout()">sair</button></div></div>' +
       '<div class="tabs" id="mainTabs"></div>' +
       tabs.map(function(t,i){return '<div class="view'+(i===0?' active':'')+'" id="v-'+t.k+'"></div>';}).join('') +
-      '<button id="anaBtn" onclick="toggleAna()">💬<span class="dot" id="anaDot"></span></button>' +
-      '<div id="anaPanel" style="display:none"><div class="aw-hdr"><b>Ana — Chefe de Gabinete</b><button class="aw-close" onclick="toggleAna()">✕</button></div><div class="aw-msgs" id="anaMsgs"></div><div class="aw-compose"><input id="anaInput" placeholder="Fale com a Ana..." onkeydown="if(event.key===\'Enter\')sendAna()" /><button onclick="sendAna()">Enviar</button></div></div>';
 
     // Renderizar tabs
     var tabsEl = $('#mainTabs');
@@ -368,7 +357,6 @@ async function renderApp() {
     });
 
     switchTab(tabs[0].k);
-    refreshAna();
   } catch(e) {
     console.error('ERRO no renderApp():', e);
     var debugDiv = document.createElement('div');
@@ -420,18 +408,235 @@ async function renderDashboard() {
   var v = $('#v-dashboard'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
   try {
-    var data = await api('/api/dashboard');
-    var d = data.dashboard; var f = d.financial;
-    v.innerHTML = '<div class="dg">' +
-      '<div class="dc accent"><div class="label">Lucro líquido</div><div class="value">'+fmt(f.lucro_liquido_cents)+'</div></div>' +
-      '<div class="dc"><div class="label">Custo (COGS)</div><div class="value">'+fmt(f.custo_mercadorias_vendidas_cents)+'</div><div class="sub">Caixa para reinvestir</div></div>' +
-      '<div class="dc"><div class="label">Pendências</div><div class="value">'+d.pending_proposals_count+'</div></div>' +
-      '<div class="dc"><div class="label">Revendedoras</div><div class="value">'+d.active_resellers+'</div><div class="sub">de '+d.total_resellers+'</div></div>' +
-      '<div class="dc"><div class="label">Vendas hoje</div><div class="value">'+d.today.sales_today_count+'</div><div class="sub">'+fmt(d.today.revenue_informed_today_cents)+'</div></div>' +
+    var [data, chartsData] = await Promise.all([
+      api('/api/dashboard'),
+      api('/api/dashboard/charts')
+    ]);
+    
+    var d = data.dashboard; 
+    var f = d.financial;
+    var charts = chartsData.charts || {};
+    var alerts = chartsData.alerts || [];
+    
+    // Cards de métricas principais
+    var cardsHtml = '<div class="dg">' +
+      '<div class="dc accent"><div class="label">💎 Lucro Líquido</div><div class="value">'+fmt(f.lucro_liquido_cents)+'</div><div class="sub">faturamento - custos - despesas</div></div>' +
+      '<div class="dc"><div class="label">💰 Faturamento</div><div class="value">'+fmt(f.faturamento_confirmado_cents)+'</div><div class="sub">kits fechados</div></div>' +
+      '<div class="dc"><div class="label">📦 Estoque Investido</div><div class="value">'+fmt(f.investimento_estoque_cents)+'</div><div class="sub">compra de produtos</div></div>' +
+      '<div class="dc"><div class="label">👥 Revendedoras</div><div class="value">'+d.active_resellers+'</div><div class="sub">de '+d.total_resellers+' ativas</div></div>' +
+      '<div class="dc"><div class="label">📊 Vendas Hoje</div><div class="value">'+d.today.sales_today_count+'</div><div class="sub">'+fmt(d.today.revenue_informed_today_cents)+'</div></div>' +
+      '</div>';
+    
+    // Alertas
+    var alertsHtml = '';
+    if (alerts.length > 0) {
+      alertsHtml = '<div class="panel" style="margin-bottom:20px;border-color:var(--dg);background:linear-gradient(135deg, rgba(212,113,122,.05), rgba(212,113,122,.02))">' +
+        '<div class="st" style="margin-top:0;color:var(--dg)">🔔 Alertas Importantes</div>' +
+        alerts.map(function(a) {
+          var color = a.type === 'danger' ? 'var(--dg)' : '#ffa500';
+          return '<div class="il" style="padding:10px 0"><span style="color:'+color+'">'+a.icon+' '+esc(a.message)+'</span></div>';
+        }).join('') +
+        '</div>';
+    }
+    
+    // Gráficos
+    var chartsHtml = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">' +
+      '<div class="panel" style="margin:0"><div class="st" style="margin-top:0">📈 Vendas por Revendedora</div><canvas id="chartResellers" style="max-height:300px"></canvas></div>' +
+      '<div class="panel" style="margin:0"><div class="st" style="margin-top:0">📊 Tendência de Vendas</div><canvas id="chartTrend" style="max-height:300px"></canvas></div>' +
       '</div>' +
-      (d.low_stock_products.length ? '<div class="panel" style="margin-bottom:20px;border-color:var(--dg)"><div class="st" style="margin-top:0;color:var(--dg)">⚠ Estoque baixo</div>' + d.low_stock_products.map(function(p){return '<div class="il"><span>'+esc(p.name)+'</span><span>'+p.available_balance+' / mín '+p.low_stock_threshold+'</span></div>';}).join('') + '</div>' : '') +
-      '<div class="panel"><div class="st" style="margin-top:0">Atividade recente</div>' + (d.recent_audit.length ? d.recent_audit.map(function(a){return '<div class="il"><span>'+esc(a.actor_label)+' — '+esc(a.action)+'</span><span style="color:var(--t3);font-size:11px">'+esc(a.created_at)+'</span></div>';}).join('') : '<div class="empty">Sem atividade ainda.</div>') + '</div>';
-  } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">' +
+      '<div class="panel" style="margin:0"><div class="st" style="margin-top:0">🏆 Top 5 Produtos</div><canvas id="chartProducts" style="max-height:300px"></canvas></div>' +
+      '<div class="panel" style="margin:0"><div class="st" style="margin-top:0">📦 Status dos Kits</div><canvas id="chartKits" style="max-height:300px"></canvas></div>' +
+      '</div>';
+    
+    // Estoque baixo
+    var lowStockHtml = '';
+    if (d.low_stock_products.length > 0) {
+      lowStockHtml = '<div class="panel" style="margin-bottom:20px;border-color:var(--dg)">' +
+        '<div class="st" style="margin-top:0;color:var(--dg)">⚠️ Estoque Baixo</div>' + 
+        d.low_stock_products.slice(0, 10).map(function(p) {
+          return '<div class="il"><span>'+esc(p.name)+'</span><span style="color:var(--dg)">'+p.available_balance+' un. (mín: '+p.low_stock_threshold+')</span></div>';
+        }).join('') + 
+        '</div>';
+    }
+    
+    // Atividade recente
+    var activityHtml = '<div class="panel"><div class="st" style="margin-top:0">📝 Atividade Recente</div>' + 
+      (d.recent_audit.length ? d.recent_audit.map(function(a) {
+        return '<div class="il"><span>'+esc(a.actor_label)+' — '+esc(a.action)+'</span><span style="color:var(--t3);font-size:11px">'+esc(a.created_at)+'</span></div>';
+      }).join('') : '<div class="empty">Sem atividade ainda.</div>') + 
+      '</div>';
+    
+    v.innerHTML = cardsHtml + alertsHtml + chartsHtml + lowStockHtml + activityHtml;
+    
+    // Renderizar gráficos após o HTML estar no DOM
+    setTimeout(function() {
+      renderCharts(charts);
+    }, 100);
+    
+  } catch(e) { 
+    v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; 
+  }
+}
+
+function renderCharts(charts) {
+  // Cores do tema
+  var colors = ['#d4919a', '#e8b5bc', '#c47a8a', '#b06878', '#94b88a', '#ffa500', '#4ade80', '#60a5fa', '#f472b6', '#a78bfa'];
+  
+  Chart.defaults.color = '#b5a3a7';
+  Chart.defaults.borderColor = '#2a2225';
+  Chart.defaults.font.family = "'DM Sans', sans-serif";
+  
+  // 1. Gráfico de vendas por revendedora (barras horizontais)
+  var ctxResellers = document.getElementById('chartResellers');
+  if (ctxResellers && charts.sales_by_reseller && charts.sales_by_reseller.length > 0) {
+    new Chart(ctxResellers, {
+      type: 'bar',
+      data: {
+        labels: charts.sales_by_reseller.map(r => r.name),
+        datasets: [{
+          label: 'Vendas (R$)',
+          data: charts.sales_by_reseller.map(r => r.total_cents / 100),
+          backgroundColor: colors.slice(0, charts.sales_by_reseller.length),
+          borderColor: colors.slice(0, charts.sales_by_reseller.length),
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return 'R$ ' + value.toFixed(2);
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+  
+  // 2. Gráfico de tendência de vendas (linha)
+  var ctxTrend = document.getElementById('chartTrend');
+  if (ctxTrend && charts.sales_trend && charts.sales_trend.length > 0) {
+    new Chart(ctxTrend, {
+      type: 'line',
+      data: {
+        labels: charts.sales_trend.map(t => t.month),
+        datasets: [{
+          label: 'Faturamento (R$)',
+          data: charts.sales_trend.map(t => t.total_cents / 100),
+          borderColor: '#d4919a',
+          backgroundColor: 'rgba(212, 145, 154, 0.1)',
+          tension: 0.4,
+          fill: true
+        }, {
+          label: 'Kits Fechados',
+          data: charts.sales_trend.map(t => t.kits_count),
+          borderColor: '#94b88a',
+          backgroundColor: 'rgba(148, 184, 138, 0.1)',
+          tension: 0.4,
+          fill: false,
+          yAxisID: 'y1'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { position: 'top' }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return 'R$ ' + value.toFixed(0);
+              }
+            }
+          },
+          y1: {
+            position: 'right',
+            beginAtZero: true,
+            grid: { drawOnChartArea: false }
+          }
+        }
+      }
+    });
+  }
+  
+  // 3. Gráfico de top produtos (barras)
+  var ctxProducts = document.getElementById('chartProducts');
+  if (ctxProducts && charts.top_products && charts.top_products.length > 0) {
+    var top5 = charts.top_products.slice(0, 5);
+    new Chart(ctxProducts, {
+      type: 'bar',
+      data: {
+        labels: top5.map(p => p.name.length > 20 ? p.name.substring(0, 20) + '...' : p.name),
+        datasets: [{
+          label: 'Unidades Vendidas',
+          data: top5.map(p => p.units_sold),
+          backgroundColor: colors.slice(0, top5.length),
+          borderColor: colors.slice(0, top5.length),
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+  
+  // 4. Gráfico de status dos kits (pizza)
+  var ctxKits = document.getElementById('chartKits');
+  if (ctxKits && charts.kits_by_status && charts.kits_by_status.length > 0) {
+    var statusLabels = {
+      'sugerido': 'Sugeridos',
+      'aprovado': 'Aprovados',
+      'em_preparacao': 'Em Preparação',
+      'entregue': 'Entregues',
+      'aguardando_fechamento': 'Aguardando',
+      'encerrado': 'Encerrados',
+      'rejeitado': 'Rejeitados'
+    };
+    
+    new Chart(ctxKits, {
+      type: 'doughnut',
+      data: {
+        labels: charts.kits_by_status.map(k => statusLabels[k.status] || k.status),
+        datasets: [{
+          data: charts.kits_by_status.map(k => k.count),
+          backgroundColor: colors.slice(0, charts.kits_by_status.length),
+          borderColor: '#161214',
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: { padding: 15 }
+          }
+        }
+      }
+    });
+  }
 }
 
 // ===== CHAT =====
@@ -503,34 +708,6 @@ async function sendMsg() {
   } catch(e) { hideTyping(); toast(e.message); }
 }
 
-// ===== ANA WIDGET =====
-var anaOpen = false;
-function toggleAna() { anaOpen = !anaOpen; var p=$('#anaPanel'); p.style.display = anaOpen?'flex':'none'; if(anaOpen) { $('#anaDot').style.display='none'; refreshAna(); } }
-
-async function refreshAna() {
-  try {
-    var data = await api('/api/conversations/ana');
-    var box = $('#anaMsgs'); if(!box) return;
-    box.innerHTML = '';
-    if (!data.messages.length) { box.innerHTML = '<div class="empty">Diga "resumo" para começar.</div>'; return; }
-    data.messages.forEach(function(m) {
-      var bubble = el('<div class="msg '+(m.sender==='ceo'?'ceo':'agente')+'" style="font-size:13px"></div>');
-      bubble.textContent = m.body;
-      box.appendChild(bubble);
-    });
-    box.scrollTop = box.scrollHeight;
-  } catch(e) {}
-}
-
-async function sendAna() {
-  var input = $('#anaInput'); if(!input) return;
-  var text = input.value.trim(); if(!text) return;
-  input.value = '';
-  try {
-    await api('/api/brain/message', {method:'POST', body:JSON.stringify({text:text})});
-    await refreshAna();
-  } catch(e) { toast(e.message); }
-}
 
 // ===== PROPOSTAS =====
 async function renderProposals() {
