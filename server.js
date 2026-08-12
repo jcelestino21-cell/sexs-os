@@ -2325,6 +2325,50 @@ router.post('/api/admin/update-kit-item-prices', requireAuth(async (req, res) =>
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Corrigir o saldo disponível (quantity_available) de um item de kit entregue.
+// Conserta o portal da revendedora quando um item foi adicionado ao kit já entregue sem
+// inicializar o quantity_available (ficava 0 no portal, mesmo com unidades entregues).
+// Se reconcile_stock for true, também ajusta o estoque físico do armazém (sai a qtd
+// entregue do depósito) para não duplicar contagem entre o kit da revendedora e o depósito.
+router.post('/api/admin/fix-kit-item-available', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const kitItemId = Number(body.kit_item_id);
+    const quantityAvailable = Number(body.quantity_available);
+    const reconcileStock = !!body.reconcile_stock;
+    if (!kitItemId || isNaN(quantityAvailable) || quantityAvailable < 0) {
+      return sendJson(res, 400, { error: 'kit_item_id e quantity_available são obrigatórios.' });
+    }
+    const item = db.prepare('SELECT * FROM kit_items WHERE id = ?').get(kitItemId);
+    if (!item) return sendJson(res, 404, { error: 'Item de kit não encontrado.' });
+    const kit = db.prepare('SELECT * FROM kits WHERE id = ?').get(item.kit_id);
+    if (!kit || !['entregue','aguardando_fechamento'].includes(kit.status)) {
+      return sendJson(res, 400, { error: `Kit em status "${kit ? kit.status : '?'}" — só é permitido corrigir kit entregue/aguardando fechamento.` });
+    }
+    db.exec('BEGIN');
+    try {
+      const previousAvailable = item.quantity_available;
+      db.prepare('UPDATE kit_items SET quantity_available = ? WHERE id = ?').run(quantityAvailable, kitItemId);
+      let stockMovementId = null;
+      if (reconcileStock && item.quantity_delivered > 0) {
+        const phys = db.prepare('SELECT COALESCE(SUM(quantity),0) as b FROM stock_movements WHERE product_id = ?').get(item.product_id).b;
+        const target = phys - item.quantity_delivered;
+        if (target >= 0) {
+          const info = db.prepare(
+            'INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)'
+          ).run(item.product_id, 'entrega_kit', -item.quantity_delivered, target,
+            `Correção de saldo — entrega real do kit #${item.kit_id} (${item.product_name})`, req.user.id);
+          stockMovementId = info.lastInsertRowid;
+        }
+      }
+      logAudit({ actorUserId: req.user.id, actorLabel: 'CEO', action: 'kit_item.available_fixed', entityType: 'kit_item', entityId: kitItemId,
+        details: { quantity_available: quantityAvailable, previous_available: previousAvailable, reconcile_stock: reconcileStock, stock_movement_id: stockMovementId } });
+      db.exec('COMMIT');
+      return sendJson(res, 200, { ok: true, item: db.prepare('SELECT * FROM kit_items WHERE id = ?').get(kitItemId), stock_movement_id: stockMovementId });
+    } catch(e) { db.exec('ROLLBACK'); throw e; }
+  } catch(e) { sendJson(res, 400, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
 // ADMIN: Delete expenses by IDs
 router.post('/api/admin/delete-expenses', requireAuth(async (req, res) => {
   try {
@@ -3512,6 +3556,10 @@ router.post('/api/admin/add-item-to-kit', requireAuth(async (req, res) => {
     const kit = db.prepare('SELECT * FROM kits WHERE id = ?').get(kit_id);
     if (!kit) return sendJson(res, 404, { error: 'Kit não encontrado' });
     
+    // Se o kit já foi entregue, o item adicionado está fisicamente com a revendedora,
+    // então precisa contar também no quantity_available (Correção: antes ficava 0 no portal).
+    const isDelivered = ['entregue', 'aguardando_fechamento'].includes(kit.status);
+    
     const product = db.prepare('SELECT ideal_price_cents FROM products WHERE id = ?').get(product_id);
     const price = product ? product.ideal_price_cents : 0;
     
@@ -3521,13 +3569,22 @@ router.post('/api/admin/add-item-to-kit', requireAuth(async (req, res) => {
     if (existingItem) {
       // Somar quantidades
       db.prepare('UPDATE kit_items SET quantity_suggested = quantity_suggested + ?, quantity_delivered = quantity_delivered + ? WHERE id = ?').run(quantity, quantity, existingItem.id);
+      if (isDelivered) {
+        db.prepare('UPDATE kit_items SET quantity_available = quantity_available + ? WHERE id = ?').run(quantity, existingItem.id);
+      }
       sendJson(res, 200, { message: `Quantidade atualizada no kit #${kit_id}`, updated: true });
     } else {
-      // Inserir novo item
-      db.prepare(`
-        INSERT INTO kit_items (kit_id, product_id, quantity_suggested, quantity_delivered, unit_sale_price_cents)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(kit_id, product_id, quantity, quantity, price);
+      if (isDelivered) {
+        db.prepare(`
+          INSERT INTO kit_items (kit_id, product_id, quantity_suggested, quantity_delivered, quantity_available, unit_sale_price_cents)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(kit_id, product_id, quantity, quantity, quantity, price);
+      } else {
+        db.prepare(`
+          INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents)
+          VALUES (?, ?, ?, ?)
+        `).run(kit_id, product_id, quantity, price);
+      }
       sendJson(res, 200, { message: `Item adicionado ao kit #${kit_id}`, inserted: true });
     }
   } catch(e) {
