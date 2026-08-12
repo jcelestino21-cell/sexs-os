@@ -36,7 +36,9 @@ function listKits({ resellerId, status } = {}) {
 function companyAvailableBalance(productId) {
   const row = db.prepare(`
     SELECT COALESCE(SUM(
-      CASE WHEN type = 'entrada' THEN quantity ELSE -quantity END
+      CASE WHEN type IN ('entrada', 'ajuste_positivo') THEN quantity 
+           WHEN type IN ('saida', 'ajuste_negativo') THEN -quantity 
+           ELSE quantity END
     ), 0) as bal 
     FROM stock_movements 
     WHERE product_id = ?
