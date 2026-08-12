@@ -1105,7 +1105,7 @@ async function renderFinancial() {
   var v = $('#v-financial'); if(!v) return;
   try {
     var [sumData, expData] = await Promise.all([api('/api/financial/summary'), api('/api/financial/expenses')]);
-    var s = sumData;
+    var s = sumData.summary || sumData;
     var f = fmt;
 
     var prevVendas = s.previsao_vendas_cents || 0;
