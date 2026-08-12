@@ -39,6 +39,44 @@ const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // -----------------------------------------------------------------------------
+// MIGRAÇÃO: Reset de senhas conhecidas (correção de login 2026-08-12)
+// Executa uma única vez para garantir que CEO e revendedoras tenham as senhas corretas.
+// Usa flag no banco para não re-executar em restarts futuros.
+// -----------------------------------------------------------------------------
+(function resetKnownPasswords() {
+  try {
+    // Criar tabela kv_store se não existir
+    db.exec("CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT)");
+
+    // Verificar se já foi executado
+    const flag = db.prepare("SELECT value FROM kv_store WHERE key = 'passwords_reset_20260812'").get();
+    if (flag) return;
+
+    const { hashPassword } = auth;
+
+    // CEO
+    const ceoHash = hashPassword('SexS2026@Jessica');
+    db.prepare('UPDATE users SET password_hash = ?, password_salt = ? WHERE username = ?')
+      .run(ceoHash.hash, ceoHash.salt, 'ceo');
+
+    // Revendedoras
+    const resellers = ['yasmin', 'flavia', 'larissa', 'taina', 'luana', 'gizelle'];
+    for (const username of resellers) {
+      const h = hashPassword('@Sexs2026');
+      db.prepare('UPDATE users SET password_hash = ?, password_salt = ? WHERE username = ?')
+        .run(h.hash, h.salt, username);
+    }
+
+    // Marcar flag para não rodar novamente
+    db.prepare("INSERT INTO kv_store (key, value) VALUES ('passwords_reset_20260812', 'done')").run();
+
+    console.log('[Migration] Senhas do CEO e revendedoras resetadas com sucesso.');
+  } catch(e) {
+    console.error('[Migration] Erro ao resetar senhas:', e.message);
+  }
+})();
+
+// -----------------------------------------------------------------------------
 // FASE 10.5 — CORREÇÃO: loadEnv() trata valores com aspas corretamente
 // Antes: KEY="value" salvava "value" com aspas incluídas.
 // Agora: remove aspas simples e duplas ao redor do valor.
