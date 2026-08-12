@@ -1118,21 +1118,29 @@ async function renderFinancial() {
     var investEstoque = s.investimento_estoque_cents || 0;
     var despesas = s.despesas_operacionais_cents || 0;
 
+    var lucroBruto = s.lucro_bruto_cents || 0;
+    var lucroLiquido = s.lucro_liquido_cents || 0;
+    
     var cardsHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">' +
       '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd)">' +
         '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">💰 Faturamento Confirmado</div>' +
         '<div style="font-size:24px;font-weight:700;color:var(--ac);margin-top:4px">' + f(faturado) + '</div>' +
         '<div style="font-size:11px;color:var(--t3);margin-top:4px">kits fechados</div>' +
       '</div>' +
+      '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid rgba(148,184,138,.25)">' +
+        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📈 Lucro Bruto</div>' +
+        '<div style="font-size:24px;font-weight:700;color:#4ade80;margin-top:4px">' + f(lucroBruto) + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">faturamento - custos</div>' +
+      '</div>' +
+      '<div style="background:linear-gradient(135deg, rgba(74,222,128,.1), rgba(74,222,128,.05));padding:16px;border-radius:var(--r2);border:2px solid rgba(74,222,128,.3)">' +
+        '<div style="font-size:10px;color:#4ade80;text-transform:uppercase;letter-spacing:1px;font-weight:600">💎 Lucro Líquido</div>' +
+        '<div style="font-size:28px;font-weight:700;color:#4ade80;margin-top:4px">' + f(lucroLiquido) + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">lucro bruto - despesas</div>' +
+      '</div>' +
       '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid rgba(255,165,0,.25)">' +
         '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📊 Previsão de Vendas</div>' +
         '<div style="font-size:24px;font-weight:700;color:#ffa500;margin-top:4px">' + f(prevVendas) + '</div>' +
         '<div style="font-size:11px;color:var(--t3);margin-top:4px">vendas informadas (pendentes)</div>' +
-      '</div>' +
-      '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid rgba(148,184,138,.25)">' +
-        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📈 Receita Líquida Prevista</div>' +
-        '<div style="font-size:24px;font-weight:700;color:#4ade80;margin-top:4px">' + f(prevReceita) + '</div>' +
-        '<div style="font-size:11px;color:var(--t3);margin-top:4px">vendas - comissões</div>' +
       '</div>' +
       '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd)">' +
         '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📦 Investido em Estoque</div>' +
