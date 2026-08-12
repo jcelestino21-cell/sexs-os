@@ -672,7 +672,7 @@ router.get('/api/products', requireCapability('stock:read', (req, res) => {
   const balanceMap = new Map(balances.map(b => [b.id, b]));
   const withBalance = products.map((p) => {
     const bal = balanceMap.get(p.id) || { physical_balance: 0, reserved: 0 };
-    return { ...p, physical_balance: bal.physical_balance, reserved: bal.reserved, available_balance: bal.physical_balance - bal.reserved };
+    return { ...p, physical_balance: bal.physical_balance, reserved: bal.reserved, available_balance: bal.physical_balance };
   });
   sendJson(res, 200, { products: withBalance });
 }));

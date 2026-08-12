@@ -45,8 +45,8 @@ function companyAvailableBalance(productId) {
 }
 
 function companyReservedBalance(productId) {
-  const row = db.prepare(`SELECT COALESCE(SUM(quantity),0) as r FROM stock_reservations WHERE product_id = ? AND status = 'ativa'`).get(productId);
-  return row.r;
+  // Reservado não é subtraído do disponível (conceito: físico = disponível)
+  return 0;
 }
 
 /** Saldo realmente livre para reservar em um NOVO kit: físico menos o que já está
