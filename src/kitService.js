@@ -36,10 +36,7 @@ function listKits({ resellerId, status } = {}) {
 function companyAvailableBalance(productId) {
   const row = db.prepare(`
     SELECT COALESCE(SUM(
-      CASE 
-        WHEN type IN ('entrada', 'entrada_ajuste', 'entrada_compra', 'entrada_devolucao', 'ajuste_positivo', 'retorno_kit') THEN quantity
-        ELSE -quantity
-      END
+      CASE WHEN type = 'entrada' THEN quantity ELSE -quantity END
     ), 0) as bal 
     FROM stock_movements 
     WHERE product_id = ?
@@ -48,8 +45,9 @@ function companyAvailableBalance(productId) {
 }
 
 function companyReservedBalance(productId) {
-  // Reservado não é subtraído do disponível (conceito: físico = disponível)
-  return 0;
+  const row = db.prepare(`SELECT COALESCE(SUM(quantity),0) as r FROM stock_reservations WHERE product_id = ? AND status = 'ativa'`).get(productId);
+  // Retorna valor negativo para que ao subtrair, some com o disponível
+  return -row.r;
 }
 
 /** Saldo realmente livre para reservar em um NOVO kit: físico menos o que já está
