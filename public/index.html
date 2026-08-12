@@ -574,7 +574,7 @@ async function renderKits() {
       '<select id="kitRes" style="width:100%;margin-top:4px">' + resData.resellers.map(function(r){return '<option value="'+r.id+'">'+esc(r.name)+'</option>';}).join('') + '</select></div>' +
       '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">2. Adicione produtos ao kit (pode adicionar quantos quiser):</label>' +
       '<div class="row" style="gap:8px;margin-top:4px">' +
-      '<select id="kitProd" style="flex:1">' + prodData.products.filter(function(p){return p.available_balance > 0;}).map(function(p){return '<option value="'+p.id+'" data-price="'+(p.ideal_price_cents || 0)+'">'+esc(p.name)+' (disp. '+p.available_balance+')</option>';}).join('') + '</select>' +
+      '<select id="kitProd" style="flex:1">' + prodData.products.filter(function(p){return p.available_balance > 0;}).sort(function(a,b){return a.name.localeCompare(b.name);}).map(function(p){return '<option value="'+p.id+'" data-price="'+(p.ideal_price_cents || 0)+'">'+esc(p.name)+' ('+p.available_balance+' disp.)</option>';}).join('') + '</select>' +
       '<input id="kitQty" type="number" min="1" placeholder="qtd" style="width:80px" value="1" />' +
       '<button class="btn-s" onclick="addToKit()">+ Adicionar ao Kit</button>' +
       '</div></div>' +
