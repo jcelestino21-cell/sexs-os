@@ -1534,7 +1534,7 @@ async function renderPortalCatalog() {
       html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ac);font-weight:600;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--bd)">' + esc(cat) + ' (' + items.length + ')</div>';
       
       items.forEach(function(p) {
-        var price = (p.sale_price_cents || 0) / 100;
+        var price = (p.ideal_price_cents || 0) / 100;
         
         html += '<div class="catalog-item" data-search="' + esc(p.name.toLowerCase()) + '" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)">';
         html += '<div style="flex:1"><div style="font-weight:500;font-size:13px">' + esc(p.name) + '</div>';
