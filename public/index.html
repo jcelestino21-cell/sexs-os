@@ -344,7 +344,7 @@ async function renderApp() {
     var root = $('#app');
     root.innerHTML = '<div class="hdr"><div class="hdr-brand"><img src="/logo-sm.png" alt="SexS" class="hdr-logo" /><div><div class="hdr-title">Central da CEO</div><div class="hdr-sub">Bem-vinda' + (S.user.role==='ceo'?'':', '+esc(S.user.name)) + '</div></div></div><div class="hdr-actions"><button class="logout" onclick="logout()">sair</button></div></div>' +
       '<div class="tabs" id="mainTabs"></div>' +
-      tabs.map(function(t,i){return '<div class="view'+(i===0?' active':'')+'" id="v-'+t.k+'"></div>';}).join('') +
+      tabs.map(function(t,i){return '<div class="view'+(i===0?' active':'')+'" id="v-'+t.k+'"></div>';}).join('');
 
     // Renderizar tabs
     var tabsEl = $('#mainTabs');
