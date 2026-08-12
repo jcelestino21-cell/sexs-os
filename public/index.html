@@ -936,6 +936,9 @@ function removeFromKit(index) {
   renderKitItemsList();
 }
 
+// Limite de kit da CEO: valor de venda máximo por kit (R$ 300,00)
+var KIT_LIMIT_REAIS = 300;
+
 function renderKitItemsList() {
   var container = $('#kitItemsList');
   if (!container) return;
@@ -946,18 +949,36 @@ function renderKitItemsList() {
   }
   
   var total = kitItems.reduce((sum, i) => sum + (i.quantity * i.price / 100), 0);
-  var html = '<div style="border:1px solid var(--border);border-radius:4px;padding:8px;background:var(--bg-secondary)">';
+  var html = '<div style="border:1px solid var(--bds);border-radius:8px;padding:12px;background:var(--p2)">';
   html += '<div style="font-size:12px;color:var(--t2);margin-bottom:8px"><strong>Produtos no kit (' + kitItems.length + '):</strong></div>';
   
   kitItems.forEach(function(item, index) {
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">';
+    var itemTotal = item.quantity * item.price / 100;
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd)">';
     html += '<div style="flex:1;font-size:13px">' + esc(item.product_name) + ' <span style="color:var(--t3)">x' + item.quantity + '</span></div>';
-    html += '<div style="font-size:12px;color:var(--t2);margin-right:8px">R$ ' + (item.quantity * item.price / 100).toFixed(2) + '</div>';
-    html += '<button onclick="removeFromKit(' + index + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px">×</button>';
+    html += '<div style="font-size:12px;color:var(--t2);margin-right:8px">R$ ' + itemTotal.toFixed(2) + '</div>';
+    html += '<button onclick="removeFromKit(' + index + ')" style="background:none;border:none;color:var(--dg);cursor:pointer;font-size:16px">×</button>';
     html += '</div>';
   });
   
-  html += '<div style="margin-top:8px;text-align:right;font-size:13px"><strong>Total: R$ ' + total.toFixed(2) + '</strong></div>';
+  // Cartão do VALOR DE VENDA DO KIT, bem visível
+  var overLimit = total > KIT_LIMIT_REAIS;
+  var remaining = KIT_LIMIT_REAIS - total;
+  var totalColor = overLimit ? '#ff6b6b' : '#4ade80';
+  var statusText = '';
+  if (overLimit) {
+    statusText = '⚠️ Passou do limite de R$ ' + KIT_LIMIT_REAIS.toFixed(2) + ' em R$ ' + Math.abs(remaining).toFixed(2);
+  } else if (remaining <= 50) {
+    statusText = '⏳ Faltam R$ ' + remaining.toFixed(2) + ' para o limite de R$ ' + KIT_LIMIT_REAIS.toFixed(2);
+  } else {
+    statusText = '✅ Dentro do limite de R$ ' + KIT_LIMIT_REAIS.toFixed(2);
+  }
+  
+  html += '<div style="margin-top:12px;padding:12px;border-radius:8px;background:var(--p3);border:1px solid ' + (overLimit ? '#ff6b6b' : 'rgba(74,222,128,.3)') + ';text-align:center">';
+  html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--t3)">Valor de venda do kit</div>';
+  html += '<div style="font-size:30px;font-weight:700;font-family:Playfair Display,serif;color:' + totalColor + ';line-height:1.1">R$ ' + total.toFixed(2) + '</div>';
+  html += '<div style="font-size:12px;color:var(--t2);margin-top:4px">' + statusText + '</div>';
+  html += '</div>';
   html += '</div>';
   container.innerHTML = html;
 }
@@ -973,6 +994,11 @@ function clearKit() {
 
 async function suggestKit() {
   if (kitItems.length === 0) return toast('Adicione pelo menos um produto ao kit.');
+  
+  var kitTotal = kitItems.reduce(function(s, i) { return s + (i.quantity * i.price / 100); }, 0);
+  if (kitTotal > KIT_LIMIT_REAIS) {
+    return toast('⚠️ O kit está em R$ ' + kitTotal.toFixed(2) + ' — acima do limite de R$ ' + KIT_LIMIT_REAIS.toFixed(2) + '. Remova itens antes de criar.');
+  }
   
   try {
     await api('/api/kits/suggest', {method:'POST', body:JSON.stringify({
