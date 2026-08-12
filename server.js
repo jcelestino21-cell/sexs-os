@@ -3534,3 +3534,28 @@ router.post('/api/admin/add-item-to-kit', requireAuth(async (req, res) => {
     sendJson(res, 500, { error: e.message });
   }
 }, { roles: ['ceo'] }));
+
+router.post('/api/admin/update-kit-prices', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const { kit_id } = body;
+    
+    if (!kit_id) {
+      return sendJson(res, 400, { error: 'kit_id é obrigatório' });
+    }
+    
+    const items = db.prepare('SELECT ki.id, ki.product_id, p.ideal_price_cents FROM kit_items ki JOIN products p ON p.id = ki.product_id WHERE ki.kit_id = ?').all(kit_id);
+    
+    let updated = 0;
+    for (const item of items) {
+      if (item.ideal_price_cents && item.ideal_price_cents > 0) {
+        db.prepare('UPDATE kit_items SET unit_sale_price_cents = ? WHERE id = ?').run(item.ideal_price_cents, item.id);
+        updated++;
+      }
+    }
+    
+    sendJson(res, 200, { ok: true, message: `Preços atualizados para ${updated} itens do kit #${kit_id}` });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
