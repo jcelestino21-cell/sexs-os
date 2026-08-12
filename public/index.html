@@ -1255,9 +1255,11 @@ async function renderOrders() {
         
         html += '<div style="font-size:13px;color:var(--t2);margin-bottom:8px">Itens no kit:</div>';
         for (var item of items) {
-          html += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--bd)">';
+          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd)">';
           html += '<span>' + esc(item.product_name) + '</span>';
-          html += '<span><strong>' + item.quantity_suggested + ' un</strong></span>';
+          html += '<span style="display:flex;align-items:center;gap:8px"><strong>' + item.quantity_suggested + ' un</strong>';
+          html += '<button onclick="removeItemFromOrdersKit(' + kit.id + ',' + item.product_id + ')" style="background:#dc2626;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer">🗑️ Estornar</button>';
+          html += '</span>';
           html += '</div>';
         }
         
@@ -1358,6 +1360,21 @@ async function confirmSeparate() {
     
     toast('Itens separados com sucesso!', 'ok');
     closeSeparateModal();
+    renderOrders();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+}
+
+async function removeItemFromOrdersKit(kitId, productId) {
+  if (!confirm('Tem certeza que deseja estornar este item do kit? O estoque será devolvido.')) return;
+  
+  try {
+    await api('/api/kits/' + kitId + '/remove-item', {
+      method: 'POST',
+      body: JSON.stringify({ product_id: productId })
+    });
+    toast('Item estornado com sucesso!', 'ok');
     renderOrders();
   } catch(e) {
     toast('Erro: ' + e.message);
