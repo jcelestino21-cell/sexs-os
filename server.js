@@ -3379,3 +3379,55 @@ router.post('/api/admin/fix-commission-table', requireAuth(async (req, res) => {
     sendJson(res, 500, { error: e.message });
   }
 }, { roles: ['ceo'] }));
+
+router.post('/api/admin/deactivate-product', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const { product_id } = body;
+    
+    if (!product_id) {
+      return sendJson(res, 400, { error: 'product_id é obrigatório' });
+    }
+    
+    db.prepare("UPDATE products SET active = 0 WHERE id = ?").run(product_id);
+    sendJson(res, 200, { ok: true });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+router.post('/api/kits/:id/remove-item', requireAuth(async (req, res, params) => {
+  try {
+    const body = await readJsonBody(req);
+    const { product_id } = body;
+    const kitId = params.id;
+    
+    if (!product_id) {
+      return sendJson(res, 400, { error: 'product_id é obrigatório' });
+    }
+    
+    // Buscar o item do kit
+    const kitItem = db.prepare(`
+      SELECT ki.id, ki.quantity_suggested, ki.product_id
+      FROM kit_items ki
+      WHERE ki.kit_id = ? AND ki.product_id = ?
+    `).get(kitId, product_id);
+    
+    if (!kitItem) {
+      return sendJson(res, 404, { error: 'Item não encontrado no kit' });
+    }
+    
+    // Devolver estoque (liberar reserva)
+    db.prepare(`
+      INSERT INTO stock_movements (product_id, type, quantity, reason, created_by)
+      VALUES (?, 'entrada', ?, 'Estorno do kit', ?)
+    `).run(product_id, kitItem.quantity_suggested, req.user.id);
+    
+    // Remover item do kit
+    db.prepare("DELETE FROM kit_items WHERE id = ?").run(kitItem.id);
+    
+    sendJson(res, 200, { ok: true, message: 'Item estornado com sucesso' });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));

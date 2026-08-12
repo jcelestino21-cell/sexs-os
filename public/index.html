@@ -1046,7 +1046,7 @@ async function toggleKitDetails(kitId) {
       var items = kit.items || [];
       var totalSold = 0, totalReturned = 0;
       var html = '<div style="font-size:12px;color:var(--t2);margin-bottom:12px">' + items.length + ' tipos de produtos</div>';
-      html += '<table style="width:100%;font-size:12px"><tr><th style="text-align:left">Produto</th><th style="text-align:center">Entregue</th><th style="text-align:center;color:#4ade80">Vendido</th><th style="text-align:center;color:#ffa500">Devolver</th><th style="text-align:right">Preço</th><th style="text-align:right">Subtotal</th></tr>';
+      html += '<table style="width:100%;font-size:12px"><tr><th style="text-align:left">Produto</th><th style="text-align:center">Entregue</th><th style="text-align:center;color:#4ade80">Vendido</th><th style="text-align:center;color:#ffa500">Devolver</th><th style="text-align:right">Preço</th><th style="text-align:right">Subtotal</th><th style="text-align:center">Ações</th></tr>';
       items.forEach(function(item) {
         var sold = (item.quantity_pending_closure || 0) + (item.quantity_confirmed_sold || 0);
         var avail = item.quantity_available || 0;
@@ -1062,6 +1062,7 @@ async function toggleKitDetails(kitId) {
         html += '<td style="text-align:center;color:#ffa500;font-weight:600">' + avail + '</td>';
         html += '<td style="text-align:right">R$ ' + price.toFixed(2) + '</td>';
         html += '<td style="text-align:right;font-weight:600">R$ ' + subtotal.toFixed(2) + '</td>';
+        html += '<td style="text-align:center"><button onclick="removeItemFromKit(' + kitId + ',' + item.product_id + ')" style="background:#dc2626;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer">🗑️ Estornar</button></td>';
         html += '</tr>';
       });
       html += '</table>';
@@ -1079,6 +1080,27 @@ async function toggleKitDetails(kitId) {
     }
   } else {
     div.style.display = 'none';
+  }
+}
+
+async function removeItemFromKit(kitId, productId) {
+  if (!confirm('Tem certeza que deseja estornar este item? O estoque será devolvido.')) return;
+  
+  try {
+    await api('/api/kits/' + kitId + '/remove-item', {
+      method: 'POST',
+      body: JSON.stringify({ product_id: productId })
+    });
+    toast('Item estornado com sucesso!', 'ok');
+    // Recarregar os detalhes do kit
+    var div = document.getElementById('kit-details-' + kitId);
+    if (div) {
+      div.style.display = 'none';
+      toggleKitDetails(kitId);
+    }
+    renderKits();
+  } catch(e) {
+    toast('Erro: ' + e.message);
   }
 }
 
