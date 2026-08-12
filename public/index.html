@@ -2238,7 +2238,7 @@ async function renderPortalKits() {
     
     // Lista de todos os produtos juntos
     allItems.forEach(function(item) {
-      html += '<div class="il"><span>'+esc(item.product_name)+'</span>';
+      html += '<div class="il"><span>'+esc(item.product_name)+' <b style="color:var(--ac)">('+item.quantity_available+' un)</b></span>';
       html += '<span><b>R$ '+(item.unit_sale_price_cents/100).toFixed(2)+'</b></span></div>';
     });
     
