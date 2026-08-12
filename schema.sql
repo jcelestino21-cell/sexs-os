@@ -478,3 +478,20 @@ CREATE TABLE IF NOT EXISTS reseller_messages (
   read_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- =============================================================================
+-- METAS E COMISSÕES EXTRAS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS reseller_goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reseller_id INTEGER NOT NULL REFERENCES resellers(id),
+  month TEXT NOT NULL,
+  target_cents INTEGER NOT NULL,
+  bonus_pct REAL NOT NULL DEFAULT 5,
+  achieved INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_goals_reseller_month ON reseller_goals(reseller_id, month);

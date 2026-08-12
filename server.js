@@ -1368,6 +1368,102 @@ router.get('/api/pricing-rule/history', requireCapability('pricing:read', (req, 
   sendJson(res, 200, { history: rows });
 }));
 
+// ---- Metas e Comissões Extras ----
+router.get('/api/goals', requireAuth((req, res) => {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    
+    // Buscar metas do mês atual
+    const goals = db.prepare(`
+      SELECT g.*, r.name 
+      FROM reseller_goals g
+      JOIN resellers r ON r.id = g.reseller_id
+      WHERE g.month = ?
+      ORDER BY g.target_cents DESC
+    `).all(currentMonth);
+    
+    // Calcular progresso de cada meta
+    const goalsWithProgress = goals.map(g => {
+      // Calcular vendas da revendedora no mês
+      const sales = db.prepare(`
+        SELECT COALESCE(SUM(kc.total_sold_confirmed_cents), 0) as total_cents
+        FROM kit_closures kc
+        JOIN kits k ON k.id = kc.kit_id
+        WHERE k.reseller_id = ?
+        AND strftime('%Y-%m', k.closed_at) = ?
+      `).get(g.reseller_id, currentMonth);
+      
+      const currentCents = sales ? sales.total_cents : 0;
+      const achieved = currentCents >= g.target_cents;
+      
+      return {
+        ...g,
+        current_cents: currentCents,
+        achieved: achieved || g.achieved === 1
+      };
+    });
+    
+    // Ranking geral do mês
+    const ranking = db.prepare(`
+      SELECT 
+        r.id,
+        r.name,
+        COALESCE(SUM(kc.total_sold_confirmed_cents), 0) as total_cents,
+        COUNT(DISTINCT k.id) as kits_closed
+      FROM resellers r
+      LEFT JOIN kits k ON k.reseller_id = r.id AND strftime('%Y-%m', k.closed_at) = ?
+      LEFT JOIN kit_closures kc ON kc.kit_id = k.id
+      WHERE r.status = 'ativa'
+      GROUP BY r.id
+      ORDER BY total_cents DESC
+    `).all(currentMonth);
+    
+    // Lista de revendedoras ativas
+    const resellers = db.prepare(`
+      SELECT id, name FROM resellers WHERE status = 'ativa' ORDER BY name
+    `).all();
+    
+    sendJson(res, 200, { goals: goalsWithProgress, ranking, resellers });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}));
+
+router.post('/api/goals', requireAuth(async (req, res) => {
+  const body = await readJsonBody(req);
+  try {
+    const { reseller_id, target_cents, bonus_pct, month } = body;
+    
+    if (!reseller_id || !target_cents || !month) {
+      throw new Error('Campos obrigatórios: reseller_id, target_cents, month');
+    }
+    
+    // Verificar se já existe meta para essa revendedora no mês
+    const existing = db.prepare(`
+      SELECT id FROM reseller_goals WHERE reseller_id = ? AND month = ?
+    `).get(reseller_id, month);
+    
+    if (existing) {
+      // Atualizar meta existente
+      db.prepare(`
+        UPDATE reseller_goals 
+        SET target_cents = ?, bonus_pct = ?, created_by = ?
+        WHERE id = ?
+      `).run(target_cents, bonus_pct || 5, req.user.id, existing.id);
+    } else {
+      // Criar nova meta
+      db.prepare(`
+        INSERT INTO reseller_goals (reseller_id, month, target_cents, bonus_pct, created_by)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(reseller_id, month, target_cents, bonus_pct || 5, req.user.id);
+    }
+    
+    sendJson(res, 200, { ok: true });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}));
+
 // =============================================================================
 // FASE 10.5 — Health check endpoints
 // =============================================================================

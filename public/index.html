@@ -89,7 +89,7 @@ select{background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-r
 .pa{display:flex;gap:10px;margin-top:14px}
 .pa button{font-size:12px;padding:8px 18px;border-radius:var(--r1);border:1px solid var(--bds);background:var(--p1);color:var(--t1);cursor:pointer;font-family:inherit;transition:var(--tr)}
 .pa .approve{background:var(--sc);border-color:var(--sc);color:var(--bg)}.pa .reject{background:var(--dg);border-color:var(--dg);color:var(--bg)}
-@media(max-width:720px){.app{padding:16px 14px 60px}.hdr{flex-direction:column;align-items:flex-start;gap:12px}.layout{grid-template-columns:1fr}.council{display:flex;overflow-x:auto;gap:8px;padding:12px;position:static}.council h2{display:none}.dir{flex-direction:column;text-align:center;gap:4px;min-width:68px;flex-shrink:0;border-left:none;border-bottom:3px solid transparent}.dir.active{border-bottom-color:var(--ac)}.dir .role{display:none}.dg{grid-template-columns:1fr 1fr}.transcript{max-height:46vh}.lw{margin:4vh auto;max-width:92vw;padding:32px 24px}.lw-logo{width:160px}}
+@media(max-width:720px){.app{padding:16px 14px 60px}.hdr{flex-direction:column;align-items:flex-start;gap:12px}.layout{grid-template-columns:1fr}.council{display:flex;overflow-x:auto;gap:8px;padding:12px;position:static}.council h2{display:none}.dir{flex-direction:column;text-align:center;gap:4px;min-width:68px;flex-shrink:0;border-left:none;border-bottom:3px solid transparent}.dir.active{border-bottom-color:var(--ac)}.dir .role{display:none}.dg{grid-template-columns:1fr 1fr}.transcript{max-height:46vh}.lw{margin:4vh auto;max-width:92vw;padding:32px 24px}.lw-logo{width:160px}.tabs{overflow-x:auto;-webkit-overflow-scrolling:touch}.tab{white-space:nowrap;flex-shrink:0;padding:10px 14px;font-size:12px}table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;white-space:nowrap}.panel{padding:16px}.dc .value{font-size:24px}[style*="grid-template-columns:repeat(auto-fit"]{grid-template-columns:1fr !important}[style*="grid-template-columns:1fr 1fr"]{grid-template-columns:1fr !important}[style*="grid-template-columns:2fr"]{grid-template-columns:1fr !important}.btn-p{padding:16px;font-size:15px}input,select{padding:14px 16px;font-size:15px}}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 </head>
@@ -108,8 +108,8 @@ select{background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-r
 </div>
 <div class="toast-stack" id="toastStack"></div>
 <script>
-var D=[{k:'ana',n:'Ana',r:'Chefe de Gabinete'},{k:'diego',n:'Diego',r:'Operações'},{k:'renata',n:'Renata',r:'Financeiro'},{k:'ricardo',n:'Ricardo',r:'Comercial'},{k:'theo',n:'Theo',r:'Marketing'},{k:'marina',n:'Marina',r:'RH'},{k:'arthur',n:'Arthur',r:'Conselheiro'}];
-var S={token:null,user:null,caps:[],thread:'ana'};
+var D=[{k:'diego',n:'Diego',r:'Operações'},{k:'renata',n:'Renata',r:'Financeiro'},{k:'ricardo',n:'Ricardo',r:'Comercial'},{k:'theo',n:'Theo',r:'Marketing'},{k:'marina',n:'Marina',r:'RH'},{k:'arthur',n:'Arthur',r:'Conselheiro'}];
+var S={token:null,user:null,caps:[],thread:'diego'};
 var execCache={};
 
 function esc(s){if(s==null)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -336,6 +336,7 @@ async function renderApp() {
     if (can('kits:read')) tabs.push({k:'kits',l:'📦 Kits'});
     if (can('kits:read')) tabs.push({k:'products-resellers',l:'🔍 Produtos com Clientes'});
     if (can('financial:read')) tabs.push({k:'financial',l:'💰 Financeiro'});
+    if (S.user.role === 'ceo') tabs.push({k:'goals',l:'🎯 Metas'});
     if (can('stock:read')) tabs.push({k:'stock',l:'📦 Estoque'});
     
     if (S.user.role === 'ceo') tabs.push({k:'resellerMsgs',l:'💬 Recados'});
@@ -395,6 +396,7 @@ function switchTab(tab) {
     kits:renderKits,
     'products-resellers':renderProductsResellers,
     financial:renderFinancial,
+    goals:renderGoals,
     stock:renderStock,
     kitdetails:renderKitDetails,
     resellerMsgs:renderResellerMessages,
@@ -1405,6 +1407,142 @@ async function renderFinancial() {
 
     v.innerHTML = cardsHtml + comissaoHtml + despHtml + infoHtml;
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
+}
+
+// ===== METAS E COMISSÕES =====
+async function renderGoals() {
+  var v = $('#v-goals'); if(!v) return;
+  v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
+  try {
+    var data = await api('/api/goals');
+    var goals = data.goals || [];
+    var ranking = data.ranking || [];
+    var currentMonth = new Date().toISOString().slice(0, 7);
+    
+    // Cards de resumo
+    var totalGoals = goals.length;
+    var achievedGoals = goals.filter(function(g) { return g.achieved; }).length;
+    var topReseller = ranking.length > 0 ? ranking[0] : null;
+    
+    var cardsHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">' +
+      '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd)">' +
+        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">🎯 Metas Ativas</div>' +
+        '<div style="font-size:28px;font-weight:700;color:var(--ac);margin-top:4px">' + totalGoals + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">revendedoras com meta</div>' +
+      '</div>' +
+      '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid rgba(74,222,128,.25)">' +
+        '<div style="font-size:10px;color:#4ade80;text-transform:uppercase;letter-spacing:1px">✅ Metas Batidas</div>' +
+        '<div style="font-size:28px;font-weight:700;color:#4ade80;margin-top:4px">' + achievedGoals + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">neste mês</div>' +
+      '</div>' +
+      '<div style="background:linear-gradient(135deg, rgba(212,145,154,.1), rgba(212,145,154,.05));padding:16px;border-radius:var(--r2);border:2px solid rgba(212,145,154,.3)">' +
+        '<div style="font-size:10px;color:var(--ac);text-transform:uppercase;letter-spacing:1px;font-weight:600">🏆 Top Revendedora</div>' +
+        '<div style="font-size:20px;font-weight:700;color:var(--ac);margin-top:4px">' + (topReseller ? esc(topReseller.name) : '-') + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">' + (topReseller ? fmt(topReseller.total_cents) : '') + '</div>' +
+      '</div>' +
+    '</div>';
+    
+    // Formulário para definir meta
+    var resellersHtml = '';
+    if (data.resellers && data.resellers.length > 0) {
+      resellersHtml = data.resellers.map(function(r) {
+        return '<option value="' + r.id + '">' + esc(r.name) + '</option>';
+      }).join('');
+    }
+    
+    var formHtml = '<div class="panel" style="margin-bottom:20px">' +
+      '<div class="st" style="margin-top:0">📝 Definir Nova Meta</div>' +
+      '<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;align-items:end">' +
+        '<div><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Revendedora</label>' +
+        '<select id="goalReseller" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px">' +
+        '<option value="">Selecione...</option>' + resellersHtml + '</select></div>' +
+        '<div><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Meta (R$)</label>' +
+        '<input id="goalTarget" type="number" placeholder="500" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
+        '<div><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Bônus (%)</label>' +
+        '<input id="goalBonus" type="number" placeholder="5" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
+        '<button onclick="saveGoal()" style="background:var(--ag);color:var(--bg);border:none;border-radius:var(--r1);padding:10px 20px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap">Salvar Meta</button>' +
+      '</div>' +
+    '</div>';
+    
+    // Tabela de metas
+    var tableHtml = '<div class="panel" style="margin-bottom:20px">' +
+      '<div class="st" style="margin-top:0">📊 Metas do Mês (' + currentMonth + ')</div>';
+    
+    if (goals.length === 0) {
+      tableHtml += '<div class="empty">Nenhuma meta definida para este mês.</div>';
+    } else {
+      tableHtml += '<table><tr><th>Revendedora</th><th style="text-align:right">Meta</th><th style="text-align:right">Vendido</th><th style="text-align:right">Progresso</th><th style="text-align:right">Bônus</th><th>Status</th></tr>';
+      goals.forEach(function(g) {
+        var progress = g.target_cents > 0 ? Math.round((g.current_cents / g.target_cents) * 100) : 0;
+        var progressColor = progress >= 100 ? '#4ade80' : progress >= 70 ? '#ffa500' : 'var(--dg)';
+        var statusIcon = g.achieved ? '🏆' : progress >= 70 ? '🔥' : '⏳';
+        var statusText = g.achieved ? 'Batida!' : progress + '%';
+        
+        tableHtml += '<tr>' +
+          '<td><b>' + esc(g.name) + '</b></td>' +
+          '<td style="text-align:right">' + fmt(g.target_cents) + '</td>' +
+          '<td style="text-align:right">' + fmt(g.current_cents) + '</td>' +
+          '<td style="text-align:right"><div style="background:var(--p2);border-radius:10px;height:8px;overflow:hidden;margin-top:4px"><div style="background:' + progressColor + ';height:100%;width:' + Math.min(progress, 100) + '%"></div></div><span style="font-size:11px;color:' + progressColor + '">' + progress + '%</span></td>' +
+          '<td style="text-align:right;color:#4ade80">+' + g.bonus_pct + '%</td>' +
+          '<td>' + statusIcon + ' ' + statusText + '</td>' +
+        '</tr>';
+      });
+      tableHtml += '</table>';
+    }
+    tableHtml += '</div>';
+    
+    // Ranking
+    var rankingHtml = '<div class="panel">' +
+      '<div class="st" style="margin-top:0">🏆 Ranking Mensal</div>';
+    
+    if (ranking.length === 0) {
+      rankingHtml += '<div class="empty">Sem dados de vendas ainda.</div>';
+    } else {
+      rankingHtml += '<table><tr><th>#</th><th>Revendedora</th><th style="text-align:right">Vendido</th><th style="text-align:right">Kits Fechados</th><th>Destaque</th></tr>';
+      ranking.slice(0, 10).forEach(function(r, i) {
+        var medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : (i + 1) + 'º';
+        var highlight = i === 0 ? ' style="background:rgba(212,145,154,.1)"' : '';
+        rankingHtml += '<tr' + highlight + '>' +
+          '<td><b>' + medal + '</b></td>' +
+          '<td>' + esc(r.name) + '</td>' +
+          '<td style="text-align:right"><b>' + fmt(r.total_cents) + '</b></td>' +
+          '<td style="text-align:right">' + (r.kits_closed || 0) + '</td>' +
+          '<td>' + (i === 0 ? '⭐ Revendedora do Mês' : '') + '</td>' +
+        '</tr>';
+      });
+      rankingHtml += '</table>';
+    }
+    rankingHtml += '</div>';
+    
+    v.innerHTML = cardsHtml + formHtml + tableHtml + rankingHtml;
+  } catch(e) {
+    v.innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + '</div></div>';
+  }
+}
+
+async function saveGoal() {
+  var resellerId = parseInt($('#goalReseller').value);
+  var target = parseFloat($('#goalTarget').value);
+  var bonus = parseFloat($('#goalBonus').value) || 5;
+  
+  if (!resellerId) { toast('Selecione uma revendedora'); return; }
+  if (!target || target <= 0) { toast('Informe um valor de meta válido'); return; }
+  
+  try {
+    await api('/api/goals', {
+      method: 'POST',
+      body: JSON.stringify({
+        reseller_id: resellerId,
+        target_cents: Math.round(target * 100),
+        bonus_pct: bonus,
+        month: new Date().toISOString().slice(0, 7)
+      })
+    });
+    toast('Meta salva com sucesso!', 'ok');
+    renderGoals();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
 }
 
 // ===== ESTOQUE =====
