@@ -3417,14 +3417,36 @@ router.post('/api/kits/:id/remove-item', requireAuth(async (req, res, params) =>
       return sendJson(res, 404, { error: 'Item não encontrado no kit' });
     }
     
-    // Devolver estoque (liberar reserva)
+    // Calcular estoque atual do produto
+    const stockResult = db.prepare(`
+      SELECT COALESCE(SUM(
+        CASE WHEN type = 'entrada' THEN quantity ELSE -quantity END
+      ), 0) as balance
+      FROM stock_movements
+      WHERE product_id = ?
+    `).get(product_id);
+    
+    const currentBalance = stockResult ? stockResult.balance : 0;
+    const newBalance = currentBalance + kitItem.quantity_suggested;
+    
+    // Devolver estoque (com balance_after correto)
     db.prepare(`
-      INSERT INTO stock_movements (product_id, type, quantity, reason, created_by)
-      VALUES (?, 'entrada', ?, 'Estorno do kit', ?)
-    `).run(product_id, kitItem.quantity_suggested, req.user.id);
+      INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by)
+      VALUES (?, 'entrada', ?, ?, 'Estorno do kit', ?)
+    `).run(product_id, kitItem.quantity_suggested, newBalance, req.user.id);
     
     // Remover item do kit
     db.prepare("DELETE FROM kit_items WHERE id = ?").run(kitItem.id);
+    
+    // Restaurar pedido original da revendedora (mudar status de 'separado' de volta para 'pendente')
+    db.prepare(`
+      UPDATE reseller_orders 
+      SET status = 'pendente', 
+          quantity_separated = NULL,
+          kit_id = NULL,
+          updated_at = datetime('now')
+      WHERE kit_id = ? AND product_id = ? AND status = 'separado'
+    `).run(kitId, product_id);
     
     sendJson(res, 200, { ok: true, message: 'Item estornado com sucesso' });
   } catch(e) {
