@@ -2501,9 +2501,12 @@ router.get('/api/admin/products-with-resellers', requireAuth((req, res) => {
 }, { roles: ['ceo'] }));
 
 // RESELLER: Product catalog with prices
+// Mostra TODOS os produtos ativos com seus valores de venda (inclusive os sem estoque
+// no momento), para a revendedora poder informar preços e pegar encomendas de itens que
+// ainda não tem em mãos. available_balance indica quantas unidades há no armazém.
 router.get('/api/portal/catalog', requireReseller((req, res) => {
   try {
-    // Buscar todos os produtos disponíveis no estoque
+    // Buscar todos os produtos ativos
     const products = db.prepare(`
       SELECT 
         p.id,
@@ -2519,7 +2522,7 @@ router.get('/api/portal/catalog', requireReseller((req, res) => {
       ORDER BY p.category, p.name
     `).all();
 
-    // Formatar dados e calcular disponibilidade
+    // Formatar dados e calcular disponibilidade (não filtra: mostra todos)
     const catalog = products.map(p => ({
       id: p.id,
       name: p.name,
@@ -2528,7 +2531,7 @@ router.get('/api/portal/catalog', requireReseller((req, res) => {
       image_url: p.photo_url,
       sale_price_cents: p.sale_price_cents,
       available_balance: (p.physical_balance - p.reserved) || 0
-    })).filter(p => p.available_balance > 0); // Só produtos disponíveis
+    }));
 
     sendJson(res, 200, { catalog: catalog });
   } catch (e) {

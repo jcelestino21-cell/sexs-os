@@ -2071,7 +2071,7 @@ async function renderPortalCatalog() {
     });
     
     var html = '<div class="panel"><div class="st" style="margin-top:0">🛍️ Catálogo de Produtos</div>' +
-      '<div style="font-size:12px;color:var(--t2);margin-bottom:16px">Mostre este catálogo para suas clientes! São <b>' + catalog.length + ' produtos</b> disponíveis para venda.</div>' +
+      '<div style="font-size:12px;color:var(--t2);margin-bottom:16px">Use estes valores para vender e pegar encomendas! <b>' + catalog.length + ' produtos</b> disponíveis no catálogo.</div>' +
       '<input id="catalogSearch" placeholder="🔍 Buscar produto..." oninput="filterCatalog()" style="width:100%;margin-bottom:16px" />';
     
     Object.keys(categories).sort().forEach(function(cat) {
@@ -2080,11 +2080,13 @@ async function renderPortalCatalog() {
       html += '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--ac);font-weight:600;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid var(--bd)">' + esc(cat) + ' (' + items.length + ')</div>';
       
       items.forEach(function(p) {
-        var price = (p.ideal_price_cents || 0) / 100;
+        var price = (p.sale_price_cents || p.ideal_price_cents || 0) / 100;
+        var inStock = (p.available_balance || 0) > 0;
         
         html += '<div class="catalog-item" data-search="' + esc(p.name.toLowerCase()) + '" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)">';
         html += '<div style="flex:1"><div style="font-weight:500;font-size:13px">' + esc(p.name) + '</div>';
         if (p.description) html += '<div style="font-size:11px;color:var(--t3);margin-top:2px">' + esc(p.description) + '</div>';
+        html += '<div style="font-size:10px;margin-top:2px;color:' + (inStock ? '#4ade80' : 'var(--t3)') + '">' + (inStock ? '📦 Disponível no armazém' : '🔔 Sob encomenda') + '</div>';
         html += '</div>';
         html += '<div style="text-align:right;font-family:Playfair Display,serif;font-size:18px;font-weight:600;color:var(--ac)">R$ ' + price.toFixed(2) + '</div>';
         html += '</div>';
