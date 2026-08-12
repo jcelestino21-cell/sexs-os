@@ -3453,3 +3453,49 @@ router.post('/api/kits/:id/remove-item', requireAuth(async (req, res, params) =>
     sendJson(res, 500, { error: e.message });
   }
 }, { roles: ['ceo'] }));
+
+router.post('/api/admin/merge-kits', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const { source_kit_id, target_kit_id } = body;
+    
+    if (!source_kit_id || !target_kit_id) {
+      return sendJson(res, 400, { error: 'source_kit_id e target_kit_id são obrigatórios' });
+    }
+    
+    // Verificar se os kits existem
+    const sourceKit = db.prepare('SELECT * FROM kits WHERE id = ?').get(source_kit_id);
+    const targetKit = db.prepare('SELECT * FROM kits WHERE id = ?').get(target_kit_id);
+    
+    if (!sourceKit) return sendJson(res, 404, { error: 'Kit de origem não encontrado' });
+    if (!targetKit) return sendJson(res, 404, { error: 'Kit de destino não encontrado' });
+    
+    // Mover todos os itens do kit de origem para o kit de destino
+    const items = db.prepare('SELECT * FROM kit_items WHERE kit_id = ?').all(source_kit_id);
+    
+    for (const item of items) {
+      // Verificar se o produto já existe no kit de destino
+      const existingItem = db.prepare('SELECT * FROM kit_items WHERE kit_id = ? AND product_id = ?').get(target_kit_id, item.product_id);
+      
+      if (existingItem) {
+        // Somar quantidades
+        db.prepare('UPDATE kit_items SET quantity_suggested = quantity_suggested + ? WHERE id = ?').run(item.quantity_suggested, existingItem.id);
+      } else {
+        // Inserir novo item
+        db.prepare('INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents) VALUES (?, ?, ?, ?)').run(
+          target_kit_id, item.product_id, item.quantity_suggested, item.unit_sale_price_cents
+        );
+      }
+    }
+    
+    // Deletar itens do kit de origem
+    db.prepare('DELETE FROM kit_items WHERE kit_id = ?').run(source_kit_id);
+    
+    // Deletar o kit de origem
+    db.prepare('DELETE FROM kits WHERE id = ?').run(source_kit_id);
+    
+    sendJson(res, 200, { ok: true, message: `Kit #${source_kit_id} juntado ao kit #${target_kit_id}`, items_moved: items.length });
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
