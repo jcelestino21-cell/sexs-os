@@ -2037,6 +2037,60 @@ router.post('/api/admin/merge-products', requireAuth(async (req, res) => {
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Unificar dois produtos que representam o mesmo item físico (duplicidade).
+// Diferente do merge-products, também transfere reseller_orders (pedidos de revendedoras)
+// e garante que o produto mantido fique ativo no catálogo. Atualiza nome se informado.
+router.post('/api/admin/unify-product', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const keepId = Number(body.keep_id);
+    const removeId = Number(body.remove_id);
+    const newName = body.name || null;
+
+    if (!keepId || !removeId || keepId === removeId) {
+      return sendJson(res, 400, { error: 'Informe keep_id e remove_id diferentes.' });
+    }
+    const keepProduct = db.prepare('SELECT * FROM products WHERE id = ?').get(keepId);
+    const removeProduct = db.prepare('SELECT * FROM products WHERE id = ?').get(removeId);
+    if (!keepProduct || !removeProduct) return sendJson(res, 404, { error: 'Produto não encontrado.' });
+
+    db.exec('BEGIN');
+    try {
+      db.prepare('UPDATE stock_lots SET product_id = ? WHERE product_id = ?').run(keepId, removeId);
+      db.prepare('UPDATE stock_movements SET product_id = ? WHERE product_id = ?').run(keepId, removeId);
+      db.prepare('UPDATE stock_reservations SET product_id = ? WHERE product_id = ?').run(keepId, removeId);
+      db.prepare('UPDATE kit_items SET product_id = ? WHERE product_id = ?').run(keepId, removeId);
+      db.prepare('UPDATE reseller_orders SET product_id = ? WHERE product_id = ?').run(keepId, removeId);
+
+      // Recalcular saldo (balance_after) das movimentações do produto mantido em ordem
+      const movements = db.prepare('SELECT id, quantity FROM stock_movements WHERE product_id = ? ORDER BY id').all(keepId);
+      let balance = 0;
+      for (const m of movements) {
+        balance += m.quantity;
+        db.prepare('UPDATE stock_movements SET balance_after = ? WHERE id = ?').run(balance, m.id);
+      }
+
+      if (newName) {
+        db.prepare('UPDATE products SET name = ? WHERE id = ?').run(newName, keepId);
+      }
+      // Garantir que o produto mantido esteja ativo no catálogo
+      db.prepare('UPDATE products SET active = 1 WHERE id = ?').run(keepId);
+
+      db.prepare('DELETE FROM products WHERE id = ?').run(removeId);
+
+      const updated = db.prepare('SELECT * FROM products WHERE id = ?').get(keepId);
+      const bal = db.prepare('SELECT COALESCE(SUM(quantity),0) as b FROM stock_movements WHERE product_id = ?').get(keepId).b;
+      logAudit({ actorUserId: req.user.id, actorLabel: 'CEO', action: 'product.unified', entityType: 'product', entityId: keepId,
+        details: { remove_id: removeId, remove_name: removeProduct.name, keep_name: updated.name, balance: bal } });
+      db.exec('COMMIT');
+      sendJson(res, 200, {
+        ok: true,
+        message: `Produtos unificados! "${removeProduct.name}" (id ${removeId}) removido. Tudo transferido para "${updated.name}" (id ${keepId}).`,
+        product: { id: keepId, name: updated.name, balance: bal }
+      });
+    } catch(e) { db.exec('ROLLBACK'); throw e; }
+  } catch (e) { sendJson(res, 500, { error: e.message }); }
+}, { roles: ['ceo'] }));
 
 // ADMIN: Full reset (clear all business data, keep CEO and pricing rule)
 router.post('/api/admin/full-reset', requireAuth(async (req, res) => {
