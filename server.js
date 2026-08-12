@@ -705,6 +705,50 @@ router.get('/api/resellers', requireCapability('resellers:read', (req, res) => {
   sendJson(res, 200, { resellers: resellerService.listResellers() });
 }));
 
+router.post('/api/resellers', requireCapability('resellers:write', async (req, res) => {
+  const body = await readJsonBody(req);
+  try {
+    const { name, phone, address, commission_pct } = body;
+    if (!name) throw new Error('Nome é obrigatório');
+    
+    const result = db.prepare(`
+      INSERT INTO resellers (name, phone, address, commission_pct, status, created_by)
+      VALUES (?, ?, ?, ?, 'ativa', ?)
+    `).run(name, phone || null, address || null, commission_pct || 0.25, req.user.id);
+    
+    logAudit({ actorUserId: req.user.id, actorLabel: req.user.name, action: 'reseller.create', entityType: 'reseller', entity_id: result.lastInsertRowid });
+    
+    sendJson(res, 200, { id: result.lastInsertRowid, ok: true });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}));
+
+router.put('/api/resellers/:id', requireCapability('resellers:write', async (req, res, params) => {
+  const body = await readJsonBody(req);
+  try {
+    const { status, phone, address, commission_pct } = body;
+    const updates = [];
+    const values = [];
+    
+    if (status) { updates.push('status = ?'); values.push(status); }
+    if (phone !== undefined) { updates.push('phone = ?'); values.push(phone); }
+    if (address !== undefined) { updates.push('address = ?'); values.push(address); }
+    if (commission_pct !== undefined) { updates.push('commission_pct = ?'); values.push(commission_pct); }
+    
+    if (updates.length === 0) throw new Error('Nenhum campo para atualizar');
+    
+    values.push(params.id);
+    db.prepare(`UPDATE resellers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    
+    logAudit({ actorUserId: req.user.id, actorLabel: req.user.name, action: 'reseller.update', entityType: 'reseller', entity_id: params.id });
+    
+    sendJson(res, 200, { ok: true });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}));
+
 router.post('/api/resellers/:id/regenerate-access', requireCapability('resellers:write', (req, res, params) => {
   try {
     const result = resellerService.regenerateFirstAccess(Number(params.id), req.user);

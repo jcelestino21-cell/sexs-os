@@ -108,8 +108,7 @@ select{background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-r
 </div>
 <div class="toast-stack" id="toastStack"></div>
 <script>
-var D=[{k:'diego',n:'Diego',r:'Operações'},{k:'renata',n:'Renata',r:'Financeiro'},{k:'ricardo',n:'Ricardo',r:'Comercial'},{k:'theo',n:'Theo',r:'Marketing'},{k:'marina',n:'Marina',r:'RH'},{k:'arthur',n:'Arthur',r:'Conselheiro'}];
-var S={token:null,user:null,caps:[],thread:'diego'};
+var S={token:null,user:null,caps:[]};
 var execCache={};
 
 function esc(s){if(s==null)return'';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -330,8 +329,8 @@ async function renderApp() {
     if (S.user.role === 'revendedora') return renderPortal();
     
     var tabs = [];
-    if (S.user.role === 'ceo') tabs.push({k:'dashboard',l:'✦ Painel'},{k:'chat',l:'Central'},{k:'proposals',l:'Pendências'});
-    if (can('resellers:read')) tabs.push({k:'resellers',l:'Revendedoras'});
+    if (S.user.role === 'ceo') tabs.push({k:'dashboard',l:'✦ Painel'});
+    if (can('resellers:read')) tabs.push({k:'resellers',l:'👥 Revendedoras'});
     if (S.user.role === 'ceo') tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('kits:read')) tabs.push({k:'kits',l:'📦 Kits'});
     if (can('kits:read')) tabs.push({k:'products-resellers',l:'🔍 Produtos com Clientes'});
@@ -389,8 +388,6 @@ function switchTab(tab) {
   // Call the render function
   var r = {
     dashboard:renderDashboard,
-    chat:renderChat,
-    proposals:renderProposals,
     resellers:renderResellers,
     orders:renderOrders,
     kits:renderKits,
@@ -723,13 +720,120 @@ async function renderProposals() {
 // ===== REVENDEDORAS =====
 async function renderResellers() {
   var v = $('#v-resellers'); if(!v) return;
+  v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
   try {
-    var data = await api('/api/resellers');
-    v.innerHTML = '<div class="panel"><div class="st" style="margin-top:0">Revendedoras</div><table><tr><th>Nome</th><th>Telefone</th><th>Status</th><th></th></tr>' +
-      data.resellers.map(function(r){return '<tr><td>'+esc(r.name)+'</td><td>'+esc(r.phone||'—')+'</td><td>'+esc(r.status)+'</td><td><button class="btn-sm" onclick="regenAccess('+r.id+',\''+esc(r.name)+'\')">Novo link</button></td></tr>';}).join('') +
-      '</table><div id="regenResult"></div></div>' +
-      '<div class="panel" style="margin-top:16px"><div class="st" style="margin-top:0">Dica</div><div class="hint">Contrate novas revendedoras falando com a Marina na Central: "Contratamos [Nome], telefone [tel], endereço [end]"</div></div>';
-  } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
+    var [data, kitsData] = await Promise.all([
+      api('/api/resellers'),
+      api('/api/kits')
+    ]);
+    
+    var resellers = data.resellers || [];
+    var kits = kitsData.kits || [];
+    
+    // Cards de resumo
+    var ativas = resellers.filter(function(r) { return r.status === 'ativa'; }).length;
+    var cardsHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px">' +
+      '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd)">' +
+        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">👥 Total</div>' +
+        '<div style="font-size:28px;font-weight:700;color:var(--ac);margin-top:4px">' + resellers.length + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">revendedoras</div>' +
+      '</div>' +
+      '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid rgba(74,222,128,.25)">' +
+        '<div style="font-size:10px;color:#4ade80;text-transform:uppercase;letter-spacing:1px">✅ Ativas</div>' +
+        '<div style="font-size:28px;font-weight:700;color:#4ade80;margin-top:4px">' + ativas + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">vendendo agora</div>' +
+      '</div>' +
+      '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd)">' +
+        '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📦 Kits Ativos</div>' +
+        '<div style="font-size:28px;font-weight:700;color:var(--t1);margin-top:4px">' + kits.filter(function(k){return k.status!=='encerrado'&&k.status!=='rejeitado';}).length + '</div>' +
+        '<div style="font-size:11px;color:var(--t3);margin-top:4px">em andamento</div>' +
+      '</div>' +
+    '</div>';
+    
+    // Formulário de cadastro
+    var formHtml = '<div class="panel" style="margin-bottom:20px">' +
+      '<div class="st" style="margin-top:0">➕ Cadastrar Nova Revendedora</div>' +
+      '<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px;align-items:end">' +
+        '<div><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Nome Completo</label>' +
+        '<input id="newResName" type="text" placeholder="Ex: Maria Silva" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
+        '<div><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Telefone</label>' +
+        '<input id="newResPhone" type="text" placeholder="(11) 99999-9999" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
+        '<div><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Comissão (%)</label>' +
+        '<input id="newResCommission" type="number" placeholder="30" value="25" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
+        '<button onclick="createReseller()" style="background:var(--ag);color:var(--bg);border:none;border-radius:var(--r1);padding:10px 20px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap">Cadastrar</button>' +
+      '</div>' +
+    '</div>';
+    
+    // Tabela de revendedoras
+    var tableHtml = '<div class="panel">' +
+      '<div class="st" style="margin-top:0">📋 Lista de Revendedoras</div>';
+    
+    if (resellers.length === 0) {
+      tableHtml += '<div class="empty">Nenhuma revendedora cadastrada ainda.</div>';
+    } else {
+      tableHtml += '<table><tr><th>Nome</th><th>Telefone</th><th>Comissão</th><th>Status</th><th>Ações</th></tr>';
+      resellers.forEach(function(r) {
+        var statusColor = r.status === 'ativa' ? '#4ade80' : r.status === 'inativa' ? 'var(--dg)' : '#ffa500';
+        var statusIcon = r.status === 'ativa' ? '✅' : r.status === 'inativa' ? '❌' : '⏳';
+        var commission = r.commission_pct ? (r.commission_pct * 100).toFixed(0) + '%' : '25%';
+        
+        tableHtml += '<tr>' +
+          '<td><b>' + esc(r.name) + '</b></td>' +
+          '<td>' + esc(r.phone || '—') + '</td>' +
+          '<td>' + commission + '</td>' +
+          '<td><span style="color:' + statusColor + '">' + statusIcon + ' ' + esc(r.status) + '</span></td>' +
+          '<td style="white-space:nowrap">' +
+            '<button class="btn-sm" onclick="regenAccess(' + r.id + ',\'' + esc(r.name) + '\')">🔗 Link</button> ' +
+            (r.status === 'ativa' 
+              ? '<button class="btn-sm" style="background:var(--dg);border-color:var(--dg);color:#fff" onclick="toggleResellerStatus(' + r.id + ',\'inativa\')">Desativar</button>'
+              : '<button class="btn-sm" style="background:var(--sc);border-color:var(--sc);color:#fff" onclick="toggleResellerStatus(' + r.id + ',\'ativa\')">Ativar</button>') +
+          '</td>' +
+        '</tr>';
+      });
+      tableHtml += '</table>';
+    }
+    tableHtml += '<div id="regenResult"></div></div>';
+    
+    v.innerHTML = cardsHtml + formHtml + tableHtml;
+  } catch(e) {
+    v.innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + '</div></div>';
+  }
+}
+
+async function createReseller() {
+  var name = $('#newResName').value.trim();
+  var phone = $('#newResPhone').value.trim();
+  var commission = parseFloat($('#newResCommission').value) || 25;
+  
+  if (!name) { toast('Informe o nome da revendedora'); return; }
+  
+  try {
+    await api('/api/resellers', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name,
+        phone: phone,
+        commission_pct: commission / 100
+      })
+    });
+    toast('Revendedora cadastrada com sucesso!', 'ok');
+    renderResellers();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
+}
+
+async function toggleResellerStatus(id, newStatus) {
+  try {
+    await api('/api/resellers/' + id, {
+      method: 'PUT',
+      body: JSON.stringify({ status: newStatus })
+    });
+    toast('Status atualizado!', 'ok');
+    renderResellers();
+  } catch(e) {
+    toast('Erro: ' + e.message);
+  }
 }
 
 async function regenAccess(id, name) {
