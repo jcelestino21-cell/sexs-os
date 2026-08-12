@@ -3499,3 +3499,38 @@ router.post('/api/admin/merge-kits', requireAuth(async (req, res) => {
     sendJson(res, 500, { error: e.message });
   }
 }, { roles: ['ceo'] }));
+
+router.post('/api/admin/add-item-to-kit', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const { kit_id, product_id, quantity } = body;
+    
+    if (!kit_id || !product_id || !quantity) {
+      return sendJson(res, 400, { error: 'kit_id, product_id e quantity são obrigatórios' });
+    }
+    
+    const kit = db.prepare('SELECT * FROM kits WHERE id = ?').get(kit_id);
+    if (!kit) return sendJson(res, 404, { error: 'Kit não encontrado' });
+    
+    const product = db.prepare('SELECT ideal_price_cents FROM products WHERE id = ?').get(product_id);
+    const price = product ? product.ideal_price_cents : 0;
+    
+    // Verificar se o produto já existe no kit
+    const existingItem = db.prepare('SELECT * FROM kit_items WHERE kit_id = ? AND product_id = ?').get(kit_id, product_id);
+    
+    if (existingItem) {
+      // Somar quantidades
+      db.prepare('UPDATE kit_items SET quantity_suggested = quantity_suggested + ?, quantity_delivered = quantity_delivered + ? WHERE id = ?').run(quantity, quantity, existingItem.id);
+      sendJson(res, 200, { message: `Quantidade atualizada no kit #${kit_id}`, updated: true });
+    } else {
+      // Inserir novo item
+      db.prepare(`
+        INSERT INTO kit_items (kit_id, product_id, quantity_suggested, quantity_delivered, unit_sale_price_cents)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(kit_id, product_id, quantity, quantity, price);
+      sendJson(res, 200, { message: `Item adicionado ao kit #${kit_id}`, inserted: true });
+    }
+  } catch(e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
