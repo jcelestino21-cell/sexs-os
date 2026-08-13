@@ -2336,24 +2336,35 @@ async function renderPortalSales() {
     var activeKits = kits.filter(function(k) { return k.status !== 'encerrado'; });
     var closedKits = kits.filter(function(k) { return k.status === 'encerrado'; });
     
-    // Calcular dados apenas do kit ativo
-    var activeSummary = { items_sold: 0, total_sold_cents: 0, commission_earned_cents: 0, commission_pct: s.commission_pct || 0 };
+    // Calcular dados apenas do kit ativo — inclui vendas CONFIRMADAS e INFORMAidas
+    // (a revendedora vê a comissão atualizando na hora, com aviso de "prevista" até a CEO confirmar)
+    var activeSummary = { items_sold: 0, total_sold_cents: 0, confirmed_sold_cents: 0, commission_earned_cents: 0, commission_pct: s.commission_pct || 0, pending_sales: 0 };
     if (activeKits.length > 0) {
       var activeKitIds = activeKits.map(function(k) { return k.id; });
       var activeSales = sales.filter(function(sale) { return activeKitIds.indexOf(sale.kit_id) !== -1; });
       
       activeSales.forEach(function(sale) {
-        if (sale.status === 'confirmada') {
+        if (sale.status === 'confirmada' || sale.status === 'informada') {
           activeSummary.items_sold += sale.quantity;
           var total = sale.quantity * (sale.unit_price_cents || 0);
           activeSummary.total_sold_cents += total;
+        }
+        if (sale.status === 'confirmada') {
+          activeSummary.confirmed_sold_cents += sale.quantity * (sale.unit_price_cents || 0);
+        }
+        if (sale.status === 'informada') {
+          activeSummary.pending_sales += 1;
         }
       });
       
       activeSummary.commission_earned_cents = Math.round(activeSummary.total_sold_cents * activeSummary.commission_pct);
     }
     
-    // Cards no topo - apenas kit ativo
+    var pendingNote = activeSummary.pending_sales > 0
+      ? '<div style="font-size:11px;color:#ffa500;margin-top:6px">⏳ ' + activeSummary.pending_sales + ' venda(s) informada(s) aguardando confirmação da CEO</div>'
+      : '';
+    
+    // Cards no topo - apenas kit ativo (atualiza em tempo real com vendas informadas)
     var summaryHtml = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">' +
       '<div style="background:var(--p2);padding:14px;border-radius:var(--r2);border:1px solid var(--bd)">' +
         '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">📦 Itens Vendidos (Kit Ativo)</div>' +
@@ -2366,8 +2377,10 @@ async function renderPortalSales() {
       '<div style="background:var(--p2);padding:14px;border-radius:var(--r2);border:1px solid rgba(148,184,138,.25)">' +
         '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">🏆 Minha Comissão (Kit Ativo)</div>' +
         '<div style="font-size:22px;font-weight:700;color:#4ade80;margin-top:4px">' + f(activeSummary.commission_earned_cents) + '</div>' +
+        (activeSummary.pending_sales > 0 ? '<div style="font-size:10px;color:#ffa500;margin-top:4px">prevista (inclui informadas)</div>' : '') +
       '</div>' +
     '</div>' +
+    (pendingNote ? '<div style="margin-bottom:16px">' + pendingNote + '</div>' : '') +
     '<div style="margin-bottom:20px">' +
       '<div style="background:linear-gradient(135deg, #10b981, #059669);padding:20px;border-radius:var(--r2);color:white">' +
         '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;margin-bottom:8px">💎 Total de Comissões Recebidas</div>' +
