@@ -2119,8 +2119,8 @@ async function renderPortalOrders() {
       api('/api/portal/products', {token: S.token})
     ]);
     
-    var statusLabels = {pendente: '⏳ Pendente', atendido: '✅ Atendido', cancelado: '❌ Cancelado'};
-    var statusColors = {pendente: '#ffa500', atendido: '#4ade80', cancelado: '#ff6b6b'};
+    var statusLabels = {pendente: '⏳ Pendente', atendido: '✅ Atendido', separado: '📦 Separado', cancelado: '❌ Cancelado'};
+    var statusColors = {pendente: '#ffa500', atendido: '#4ade80', separado: '#3b82f6', cancelado: '#ff6b6b'};
     
     // Formulário de novo pedido
     var newOrderHtml = '<div class="panel" style="margin-bottom:20px">' +
@@ -2137,12 +2137,27 @@ async function renderPortalOrders() {
         '<button class="btn-s" onclick="submitOrder()" style="padding:12px 20px;background:var(--ag);color:var(--bg);border:none;font-weight:600;border-radius:var(--r1);cursor:pointer">Pedir</button>' +
       '</div></div>';
     
-    // Lista de pedidos existentes
+    // Lista de pedidos — reduzir poluição visual:
+    //  - Pendentes: sempre visíveis
+    //  - Atendidos/Separados: visíveis temporariamente por 1 dia (para a revendedora
+    //    ver que foi separado/atendido) e depois somem
+    var CUTOFF_1DIA = Date.now() - 24 * 60 * 60 * 1000;
+    function orderRecente(o) {
+      var t = new Date(o.updated_at || o.created_at || '').getTime();
+      return !isNaN(t) && t >= CUTOFF_1DIA;
+    }
+    var visibleOrders = (ordersData.orders || []).filter(function(o) {
+      if (o.status === 'pendente') return true;        // pendente sempre aparece
+      return orderRecente(o);                          // demais só se recente (24h)
+    });
+    
     var ordersHtml = '';
-    if (ordersData.orders && ordersData.orders.length > 0) {
-      ordersHtml = '<div class="panel"><div class="st" style="margin-top:0">Meus Pedidos (' + ordersData.orders.length + ')</div>' +
+    if (visibleOrders.length > 0) {
+      var pendCount = visibleOrders.filter(function(o){return o.status==='pendente';}).length;
+      ordersHtml = '<div class="panel"><div class="st" style="margin-top:0">Meus Pedidos (' + visibleOrders.length + ')</div>' +
+        (pendCount < visibleOrders.length ? '<div style="font-size:11px;color:var(--t3);margin-bottom:8px">Pendentes aparecem sempre. Atendidos/separados somem após 1 dia.</div>' : '') +
         '<table style="width:100%;font-size:13px"><tr><th>Produto</th><th style="text-align:center">Qtd</th><th>Status</th><th>Quando</th><th style="text-align:center">Ações</th></tr>' +
-        ordersData.orders.map(function(o){
+        visibleOrders.map(function(o){
           var actions = '';
           if (o.status === 'pendente') {
             actions = '<button class="btn-sm" onclick="editOrder(' + o.id + ', ' + o.quantity_requested + ')" style="margin-right:4px">✏️</button>' +
