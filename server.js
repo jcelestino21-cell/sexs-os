@@ -2092,6 +2092,28 @@ router.post('/api/admin/unify-product', requireAuth(async (req, res) => {
   } catch (e) { sendJson(res, 500, { error: e.message }); }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Transferir um kit para outra revendedora (correção de cadastro).
+// Muda o reseller_id do kit (e mantém os itens entregues/disponíveis com a nova
+// revendedora). NÃO mexe em estoque físico, pois os itens continuam com a mesma
+// quantidade em consignado — só muda quem é o responsável.
+router.post('/api/admin/transfer-kit', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const kitId = Number(body.kit_id);
+    const newResellerId = Number(body.new_reseller_id);
+    if (!kitId || !newResellerId) return sendJson(res, 400, { error: 'kit_id e new_reseller_id são obrigatórios.' });
+    const kit = db.prepare('SELECT * FROM kits WHERE id = ?').get(kitId);
+    if (!kit) return sendJson(res, 404, { error: 'Kit não encontrado.' });
+    const target = db.prepare('SELECT * FROM resellers WHERE id = ?').get(newResellerId);
+    if (!target) return sendJson(res, 404, { error: 'Revendedora de destino não encontrada.' });
+    const source = db.prepare('SELECT * FROM resellers WHERE id = ?').get(kit.reseller_id);
+    db.prepare('UPDATE kits SET reseller_id = ? WHERE id = ?').run(newResellerId, kitId);
+    logAudit({ actorUserId: req.user.id, actorLabel: 'CEO', action: 'kit.transferred', entityType: 'kit', entityId: kitId,
+      details: { from_reseller_id: kit.reseller_id, from_reseller: source ? source.name : null, to_reseller_id: newResellerId, to_reseller: target.name } });
+    sendJson(res, 200, { ok: true, message: `Kit #${kitId} transferido de "${source ? source.name : kit.reseller_id}" para "${target.name}".` });
+  } catch (e) { sendJson(res, 500, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
 // ADMIN: Full reset (clear all business data, keep CEO and pricing rule)
 router.post('/api/admin/full-reset', requireAuth(async (req, res) => {
   try {
