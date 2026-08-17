@@ -2082,13 +2082,17 @@ async function renderPortalCatalog() {
       items.forEach(function(p) {
         var price = (p.sale_price_cents || p.ideal_price_cents || 0) / 100;
         var inStock = (p.available_balance || 0) > 0;
+        var img = p.image_url || p.photo_url || '';
+        var thumb = img ? '<img src="'+esc(img)+'" alt="'+esc(p.name)+'" loading="lazy" onerror="this.style.display=\'none\'" style="width:64px;height:64px;object-fit:cover;border-radius:8px;flex-shrink:0;background:var(--p3)" />'
+                        : '<div style="width:64px;height:64px;border-radius:8px;background:var(--p3);display:flex;align-items:center;justify-content:center;color:var(--t3);font-size:20px;flex-shrink:0">'+esc((p.name||'?').charAt(0).toUpperCase())+'</div>';
         
-        html += '<div class="catalog-item" data-search="' + esc(p.name.toLowerCase()) + '" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)">';
+        html += '<div class="catalog-item" data-search="' + esc(p.name.toLowerCase()) + '" style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd);gap:12px">';
+        html += thumb;
         html += '<div style="flex:1"><div style="font-weight:500;font-size:13px">' + esc(p.name) + '</div>';
         if (p.description) html += '<div style="font-size:11px;color:var(--t3);margin-top:2px">' + esc(p.description) + '</div>';
         html += '<div style="font-size:10px;margin-top:2px;color:' + (inStock ? '#4ade80' : 'var(--t3)') + '">' + (inStock ? '📦 Disponível no armazém' : '🔔 Sob encomenda') + '</div>';
         html += '</div>';
-        html += '<div style="text-align:right;font-family:Playfair Display,serif;font-size:18px;font-weight:600;color:var(--ac)">R$ ' + price.toFixed(2) + '</div>';
+        html += '<div style="text-align:right;font-family:Playfair Display,serif;font-size:18px;font-weight:600;color:var(--ac);white-space:nowrap">R$ ' + price.toFixed(2) + '</div>';
         html += '</div>';
       });
       
