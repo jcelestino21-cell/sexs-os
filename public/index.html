@@ -1506,7 +1506,9 @@ async function addItemToKit(kitId) {
 async function renderFinancial() {
   var v = $('#v-financial'); if(!v) return;
   try {
-    var [sumData, expData, fixedData] = await Promise.all([api('/api/financial/summary'), api('/api/financial/expenses'), api('/api/financial/fixed-expenses')]);
+    var selectedMonth = localStorage.getItem('sexs_fin_month') || new Date().toISOString().slice(0,7);
+    var [sumData, expData, fixedData] = await Promise.all([api('/api/financial/summary?month='+selectedMonth), api('/api/financial/expenses'), api('/api/financial/fixed-expenses')]);
+    var filterHtml = '<div class="panel" style="margin-bottom:16px"><b>📅 Período financeiro</b> <input type="month" id="finance-month" value="'+selectedMonth+'" onchange="localStorage.setItem(\'sexs_fin_month\',this.value);renderFinancial()"> <span style="font-size:12px;color:var(--t3)">Previsões e totais calculados automaticamente para o mês.</span></div>';
     var s = sumData.summary || sumData;
     var f = fmt;
 
@@ -1576,7 +1578,7 @@ async function renderFinancial() {
       '• <b>Caixa</b>: só entra dinheiro quando a revendedora paga o que vendeu' +
       '</div></div>';
 
-    v.innerHTML = cardsHtml + comissaoHtml + fixedHtml + despHtml + infoHtml;
+    v.innerHTML = filterHtml + cardsHtml + comissaoHtml + fixedHtml + despHtml + '<div class="panel" style="margin-bottom:16px"><div class="st" style="margin-top:0">💵 Resumo de Entradas e Saídas</div><div style="display:flex;gap:24px;flex-wrap:wrap"><span>Entradas: <b style="color:#4ade80">'+f(s.entradas_periodo_cents||0)+'</b></span><span>Saídas: <b style="color:#f87171">'+f(s.saidas_periodo_cents||0)+'</b></span><span>Saldo: <b>'+f(s.saldo_periodo_cents||0)+'</b></span></div></div>' + infoHtml;
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
 }
 

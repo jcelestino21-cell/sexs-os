@@ -1395,7 +1395,7 @@ router.get('/api/dashboard/charts', requireAuth((req, res) => {
 
 // ---- Financeiro ----
 router.get('/api/financial/summary', requireCapability('financial:read', (req, res) => {
-  sendJson(res, 200, { summary: financeService.financialSummary() });
+  sendJson(res, 200, { summary: financeService.financialSummary(new URL(req.url, 'http://local').searchParams.get('month')) });
 }));
 
 router.get('/api/financial/expenses', requireCapability('financial:read', (req, res) => {

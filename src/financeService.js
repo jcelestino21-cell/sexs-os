@@ -101,7 +101,12 @@ function executeNovaRegraPrecificacao(extracted, proposalId, ceoUser) {
   });
 }
 
-function financialSummary() {
+function financialSummary(month) {
+  // month no formato YYYY-MM; sem filtro, mantém visão acumulada.
+  const period = month && /^\\d{4}-\\d{2}$/.test(month) ? month : null;
+  const closureWhere = period ? " WHERE strftime('%Y-%m', created_at) = ?" : '';
+  const expenseWhere = period ? " WHERE strftime('%Y-%m', created_at) = ?" : '';
+  const periodArgs = period ? [period] : [];
   // Faturamento CONFIRMADO: só kits encerrados. Vendas informadas/kits em andamento
   // NUNCA entram aqui (Correção Seção 3, regra 8).
   const closedTotals = db.prepare(`
@@ -112,25 +117,27 @@ function financialSummary() {
            COALESCE(SUM(write_off_cost_cents),0) as write_off,
            COALESCE(SUM(gross_profit_cents),0) as gross_profit,
            COUNT(*) as closed_kits
-    FROM kit_closures
-  `).get();
+    FROM kit_closures${closureWhere}
+  `).get(...periodArgs);
 
   // Valor VENDIDO INFORMADO (ainda não confirmado) — só para visibilidade, nunca
   // somado ao faturamento confirmado.
   const informed = db.prepare(`
-    SELECT COALESCE(SUM(quantity * unit_price_cents),0) as total FROM kit_sales WHERE status = 'informada'
-  `).get();
+    SELECT COALESCE(SUM(quantity * unit_price_cents),0) as total FROM kit_sales WHERE status = 'informada' AND (? IS NULL OR strftime('%Y-%m', created_at) = ?)
+  `).get(period, period);
   const rule = db.prepare('SELECT commission_pct FROM pricing_rules WHERE active = 1 ORDER BY version DESC LIMIT 1').get();
   const estimatedCommissionOnInformed = Math.round(informed.total * (rule ? rule.commission_pct : 0.30));
 
-  const expenseTotals = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total, COUNT(*) as count FROM expenses`).get();
+  const expenseTotals = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total, COUNT(*) as count FROM expenses${expenseWhere}`).get(...periodArgs);
   const stockPurchases = db.prepare(`SELECT COALESCE(SUM(quantity_purchased * unit_cost_cents),0) as total FROM stock_lots`).get();
 
-  const commissionPaid = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total FROM commission_payments`).get();
-  const receivedFromResellers = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total FROM receivable_payments`).get();
+  const commissionPaid = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total FROM commission_payments${expenseWhere}`).get(...periodArgs);
+  const receivedFromResellers = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total FROM receivable_payments${expenseWhere}`).get(...periodArgs);
+  const fixed = db.prepare('SELECT COALESCE(SUM(amount_cents),0) as total FROM fixed_expenses WHERE active=1').get();
+  const fixedTotal = fixed.total || 0;
 
   const grossProfitCents = closedTotals.gross_profit;
-  const netProfitCents = grossProfitCents - expenseTotals.total;
+  const netProfitCents = grossProfitCents - expenseTotals.total - fixedTotal;
 
   const cashIn = receivedFromResellers.total;
   const cashOut = expenseTotals.total + commissionPaid.total; // estoque é investimento, não sai do caixa
@@ -153,8 +160,14 @@ function financialSummary() {
     custo_mercadorias_vendidas_cents: closedTotals.cogs,
     perdas_danos_cents: closedTotals.write_off,
     estoque_comprado_cents: stockPurchases.total,
-    despesas_operacionais_cents: expenseTotals.total,
+    despesas_operacionais_cents: expenseTotals.total + fixedTotal,
+    despesas_variaveis_cents: expenseTotals.total,
+    despesas_fixas_cents: fixedTotal,
     despesas_count: expenseTotals.count,
+    entradas_periodo_cents: cashIn,
+    saidas_periodo_cents: cashOut + fixedTotal,
+    saldo_periodo_cents: cashIn - cashOut - fixedTotal,
+    periodo: period || 'acumulado',
     // Resultado
     lucro_bruto_cents: grossProfitCents,
     lucro_liquido_cents: netProfitCents,
