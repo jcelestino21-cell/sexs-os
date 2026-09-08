@@ -104,7 +104,7 @@ function executeNovaRegraPrecificacao(extracted, proposalId, ceoUser) {
 function financialSummary(month) {
   // month no formato YYYY-MM; sem filtro, mantém visão acumulada.
   const period = month && /^\\d{4}-\\d{2}$/.test(month) ? month : null;
-  const closureWhere = period ? " WHERE strftime('%Y-%m', created_at) = ?" : '';
+  const closureWhere = period ? " WHERE (strftime('%Y-%m', kc.created_at) = ? AND NOT EXISTS (SELECT 1 FROM receivable_payments rp0 WHERE rp0.kit_id = kc.kit_id)) OR EXISTS (SELECT 1 FROM receivable_payments rp1 WHERE rp1.kit_id = kc.kit_id AND strftime('%Y-%m', rp1.created_at) = ?)" : '';
   const expenseWhere = period ? " WHERE strftime('%Y-%m', created_at) = ?" : '';
   const periodArgs = period ? [period] : [];
   // Faturamento CONFIRMADO: só kits encerrados. Vendas informadas/kits em andamento
@@ -117,8 +117,8 @@ function financialSummary(month) {
            COALESCE(SUM(write_off_cost_cents),0) as write_off,
            COALESCE(SUM(gross_profit_cents),0) as gross_profit,
            COUNT(*) as closed_kits
-    FROM kit_closures${closureWhere}
-  `).get(...periodArgs);
+    FROM kit_closures kc${closureWhere}
+  `).get(...(period ? [period, period] : []));
 
   // Valor VENDIDO INFORMADO (ainda não confirmado) — só para visibilidade, nunca
   // somado ao faturamento confirmado.
@@ -129,7 +129,7 @@ function financialSummary(month) {
   const estimatedCommissionOnInformed = Math.round(informed.total * (rule ? rule.commission_pct : 0.30));
 
   const expenseTotals = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total, COUNT(*) as count FROM expenses${expenseWhere}`).get(...periodArgs);
-  const stockPurchases = db.prepare(`SELECT COALESCE(SUM(quantity_purchased * unit_cost_cents),0) as total FROM stock_lots`).get();
+  const stockPurchases = db.prepare(`SELECT COALESCE(SUM(quantity_purchased * unit_cost_cents),0) as total FROM stock_lots${expenseWhere}`).get(...periodArgs);
 
   const commissionPaid = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total FROM commission_payments${expenseWhere}`).get(...periodArgs);
   const receivedFromResellers = db.prepare(`SELECT COALESCE(SUM(amount_cents),0) as total FROM receivable_payments${expenseWhere}`).get(...periodArgs);
@@ -171,6 +171,8 @@ function financialSummary(month) {
     // Resultado
     lucro_bruto_cents: grossProfitCents,
     lucro_liquido_cents: netProfitCents,
+    lucro_disponivel_apos_despesas_fixas_cents: grossProfitCents - fixedTotal,
+    // O lucro bruto já é após a comissão e deve financiar despesas fixas e reposição de estoque.
     // Caixa (só dinheiro que de fato entrou/saiu, nunca valores meramente calculados)
     entradas_caixa_cents: cashIn,
     saidas_caixa_cents: cashOut,
