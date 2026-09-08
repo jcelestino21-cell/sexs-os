@@ -35,6 +35,19 @@ const ordersService = require('./src/ordersService');
 const { hasCapability, capabilitiesFor } = require('./src/authorization');
 const notificationService = require('./src/notificationService');
 
+// Despesas fixas recorrentes cadastradas pela CEO.
+db.exec(`CREATE TABLE IF NOT EXISTS fixed_expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, amount_cents INTEGER NOT NULL,
+  due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31), active INTEGER NOT NULL DEFAULT 1,
+  created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)`);
+// Cadastros iniciais solicitados pela CEO (idempotente).
+const ceo = db.prepare("SELECT id FROM users WHERE username='ceo'").get();
+if (ceo) {
+  db.prepare("INSERT INTO fixed_expenses (name, amount_cents, due_day, created_by) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM fixed_expenses WHERE name = ?)").run('MEI',8000,20,ceo.id,'MEI');
+  db.prepare("INSERT INTO fixed_expenses (name, amount_cents, due_day, created_by) SELECT ?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM fixed_expenses WHERE name = ?)").run('Render',3500,5,ceo.id,'Render');
+}
+
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -1387,6 +1400,12 @@ router.get('/api/financial/summary', requireCapability('financial:read', (req, r
 
 router.get('/api/financial/expenses', requireCapability('financial:read', (req, res) => {
   sendJson(res, 200, { expenses: financeService.listExpenses() });
+}));
+router.get('/api/financial/fixed-expenses', requireCapability('financial:read', (req,res) => {
+  sendJson(res, 200, { expenses: db.prepare('SELECT * FROM fixed_expenses WHERE active=1 ORDER BY due_day, name').all() });
+}));
+router.post('/api/financial/fixed-expenses', requireCapability('financial:write', async (req,res) => {
+  try { const b=await readJsonBody(req); const name=String(b.name||'').trim(); const amount=Math.round(Number(b.amount_cents)); const day=Number(b.due_day); if(!name||!amount||day<1||day>31) throw new Error('Informe nome, valor e dia de vencimento válidos.'); const x=db.prepare('INSERT INTO fixed_expenses (name,amount_cents,due_day,created_by) VALUES (?,?,?,?)').run(name,amount,day,req.user.id); sendJson(res,200,{expense:db.prepare('SELECT * FROM fixed_expenses WHERE id=?').get(x.lastInsertRowid)}); } catch(e){sendJson(res,400,{error:e.message});}
 }));
 
 router.get('/api/financial/commission-payments', requireCapability('financial:read', (req, res) => {
