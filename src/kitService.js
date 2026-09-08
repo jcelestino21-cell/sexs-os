@@ -277,7 +277,7 @@ function informSale({ kitItemId, quantity, resellerUser }) {
   if (!item) throw new Error('Item de kit não encontrado.');
   const kit = getKit(item.kit_id);
   if (kit.reseller_id !== resellerUser.reseller_id) throw new Error('Este kit não pertence a você.');
-  if (kit.status !== 'entregue') throw new Error(`Este kit está em status "${kit.status}" e não aceita novas vendas informadas.`);
+  if (!['entregue', 'aguardando_fechamento'].includes(kit.status)) throw new Error(`Este kit está em status "${kit.status}" e não aceita novas vendas informadas.`);
   if (!quantity || quantity <= 0) throw new Error('Quantidade inválida.');
   if (quantity > item.quantity_available) {
     throw new Error(`Você não pode informar a venda de ${quantity} unidades: só há ${item.quantity_available} disponíveis neste item.`);
@@ -390,6 +390,18 @@ function saveReconciliationItem({ kitId, kitItemId, values, ceoUser }) {
   }
   logAudit({ actorUserId: ceoUser.id, actorLabel: 'CEO', action: 'kit.reconciliation_saved', entityType: 'kit_item', entityId: kitItemId, details: v });
   return getReconciliationDraft(kitId).find((r) => r.kit_item_id === kitItemId);
+}
+
+function reopenClosure(kitId, actorUser) {
+  const kit = getKit(kitId);
+  if (!kit) throw new Error('Kit não encontrado.');
+  if (kit.reseller_id !== actorUser.reseller_id) throw new Error('Este kit não pertence a você.');
+  if (kit.status !== 'aguardando_fechamento') throw new Error(`Só é possível reabrir kits aguardando fechamento. Este está em "${kit.status}".`);
+  // A conferência ainda é apenas um rascunho. Removê-la evita fechar com dados antigos.
+  db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_id = ?').run(kitId);
+  db.prepare("UPDATE kits SET status = 'entregue', closure_requested_at = NULL WHERE id = ?").run(kitId);
+  logAudit({ actorUserId: actorUser.id, actorLabel: 'Revendedora', action: 'kit.closure_reopened', entityType: 'kit', entityId: kitId });
+  return getKit(kitId);
 }
 
 function requestClosure(kitId, actorUser) {
@@ -579,7 +591,7 @@ function rankingForReseller(resellerId) {
 
 module.exports = {
   getKit, listKits, suggestKit, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
-  informSale, decideSale, requestClosure, approveClosure, pendingSalesForReview,
+  informSale, decideSale, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
   getReconciliationDraft, saveReconciliationItem,
   rankingFull, rankingForReseller,
 };

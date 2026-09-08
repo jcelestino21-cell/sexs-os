@@ -1005,6 +1005,12 @@ router.post('/api/portal/kits/:id/request-closure', requireReseller((req, res, p
   catch (e) { sendJson(res, 400, { error: e.message }); }
 }));
 
+// A revendedora pode reabrir enquanto a CEO ainda não confirmou o fechamento.
+router.post('/api/portal/kits/:id/reopen', requireReseller((req, res, params) => {
+  try { sendJson(res, 200, { kit: kitService.reopenClosure(Number(params.id), req.user) }); }
+  catch (e) { sendJson(res, 400, { error: e.message }); }
+}));
+
 router.get('/api/portal/ranking', requireReseller((req, res) => {
   sendJson(res, 200, { ranking: kitService.rankingForReseller(req.user.reseller_id) });
 }));

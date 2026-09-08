@@ -2299,7 +2299,14 @@ async function renderPortalKits() {
       
       // Botão solicitar fechamento
       var openKitIds = readyKits.filter(function(k){return k.status==='entregue'||k.status==='aguardando_fechamento'}).map(function(k){return k.id});
-      html += '<div style="margin-top:16px;text-align:center"><button class="btn-s" onclick="requestClosureAll(['+openKitIds.join(',')+'])">📋 Solicitar Fechamento</button></div>';
+      html += '<div style="margin-top:16px;text-align:center">';
+      var awaitingIds = readyKits.filter(function(k){return k.status==='aguardando_fechamento';}).map(function(k){return k.id});
+      if (awaitingIds.length) {
+        html += '<button class="btn-s" style="margin-right:8px" onclick="reopenKits(['+awaitingIds.join(',')+'])">↩️ Reabrir kit para nova venda</button>';
+      }
+      var deliveredIds = readyKits.filter(function(k){return k.status==='entregue';}).map(function(k){return k.id});
+      if (deliveredIds.length) html += '<button class="btn-s" onclick="requestClosureAll(['+deliveredIds.join(',')+'])">📋 Solicitar Fechamento</button>';
+      html += '</div>';
     }
     
     html += '</div>';
@@ -2312,6 +2319,16 @@ async function requestClosureAll(kitIds) {
     try { await api('/api/portal/kits/'+id+'/request-closure', {method:'POST', token:S.token, body:'{}'}); } catch(e) {}
   }
   toast('Fechamento solicitado! ✅', 'ok');
+  renderPortalKits();
+}
+
+async function reopenKits(kitIds) {
+  if (!confirm('Reabrir o kit para lançar novas vendas? A conferência ainda não confirmada será limpa e poderá ser refeita pela CEO.')) return;
+  for (var id of kitIds) {
+    try { await api('/api/portal/kits/'+id+'/reopen', {method:'POST', token:S.token, body:'{}'}); }
+    catch(e) { toast(e.message); return; }
+  }
+  toast('Kit reaberto! Você já pode informar a nova venda. ✅', 'ok');
   renderPortalKits();
 }
 
