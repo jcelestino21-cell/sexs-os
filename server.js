@@ -2133,7 +2133,7 @@ router.post('/api/admin/split-kit-sales', requireAuth(async (req,res) => {
         db.prepare('UPDATE kit_items SET quantity_delivered=?,quantity_available=0,quantity_pending_closure=? WHERE id=?').run(sold,sold,item.id);
         db.prepare('INSERT INTO kit_item_reconciliations (kit_id,kit_item_id,quantity_sold_confirmed,quantity_returned,finalized,created_by) VALUES (?,?,?,?,1,?)').run(kitId,item.id,sold,0,req.user.id);
       } else { db.prepare('UPDATE kit_items SET kit_id=? WHERE id=?').run(newKitId,item.id); }
-      if(sold>0 && unsold>0){ db.prepare('INSERT INTO kit_items (kit_id,product_id,quantity_suggested,quantity_delivered,quantity_available,quantity_confirmed_sold,quantity_pending_closure,quantity_returned,unit_sale_price_cents,last_purchase_cost_cents) SELECT ?,product_id,?,?,?,?,0,0,unit_sale_price_cents,last_purchase_cost_cents FROM kit_items WHERE id=?').run(newKitId,unsold,unsold,unsold,0,item.id); }
+      if(sold>0 && unsold>0){ db.prepare('INSERT INTO kit_items (kit_id,product_id,quantity_suggested,unit_sale_price_cents,quantity_delivered,quantity_available,quantity_confirmed_sold,quantity_pending_closure,quantity_returned) SELECT ?,product_id,?,unit_sale_price_cents,?,?,0,0,0 FROM kit_items WHERE id=?').run(newKitId,unsold,unsold,unsold,item.id); }
     }
     db.prepare("UPDATE kits SET status='aguardando_fechamento', closure_requested_at=datetime('now') WHERE id=?").run(kitId);
     db.exec('COMMIT');
