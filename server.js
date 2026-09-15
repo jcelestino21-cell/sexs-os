@@ -2125,7 +2125,7 @@ router.post('/api/admin/split-kit-sales', requireAuth(async (req,res) => {
     if(kit.status!=='entregue') return sendJson(res,400,{error:'O kit precisa estar entregue'});
     const nextCycle=(db.prepare('SELECT COALESCE(MAX(cycle_number),0)+1 n FROM kits WHERE reseller_id=?').get(kit.reseller_id).n);
     db.exec('BEGIN');
-    const nk=db.prepare("INSERT INTO kits (reseller_id,cycle_number,status,created_by,approved_by,approved_at,delivered_at) VALUES (?,?, 'entregue',?,?,?,?,datetime('now'))").run(kit.reseller_id,nextCycle,req.user.id,req.user.id,kit.delivered_at||null);
+    const nk=db.prepare("INSERT INTO kits (reseller_id,cycle_number,status,created_by,approved_by,approved_at,delivered_at) VALUES (?,?, 'entregue',?,?,?,?)").run(kit.reseller_id,nextCycle,req.user.id,req.user.id,kit.approved_at||null,kit.delivered_at||null);
     const newKitId=Number(nk.lastInsertRowid);
     for(const item of kit.items){
       const sold=Number(item.quantity_pending_closure||item.quantity_confirmed_sold||0), unsold=Math.max(0,Number(item.quantity_delivered||item.quantity_suggested||0)-sold);
