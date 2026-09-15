@@ -2117,6 +2117,31 @@ router.post('/api/admin/unify-product', requireAuth(async (req, res) => {
   } catch (e) { sendJson(res, 500, { error: e.message }); }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Separar vendas já informadas de um kit e renovar o saldo não vendido.
+router.post('/api/admin/split-kit-sales', requireAuth(async (req,res) => {
+  try {
+    const b=await readJsonBody(req), kitId=Number(b.kit_id), kit=kitService.getKit(kitId);
+    if(!kit) return sendJson(res,404,{error:'Kit não encontrado'});
+    if(kit.status!=='entregue') return sendJson(res,400,{error:'O kit precisa estar entregue'});
+    const nextCycle=(db.prepare('SELECT COALESCE(MAX(cycle_number),0)+1 n FROM kits WHERE reseller_id=?').get(kit.reseller_id).n);
+    db.exec('BEGIN');
+    const nk=db.prepare("INSERT INTO kits (reseller_id,cycle_number,status,created_by,approved_by,approved_at,delivered_at) VALUES (?,?, 'entregue',?,?,?,?,datetime('now'))").run(kit.reseller_id,nextCycle,req.user.id,req.user.id,kit.delivered_at||null);
+    const newKitId=Number(nk.lastInsertRowid);
+    for(const item of kit.items){
+      const sold=Number(item.quantity_pending_closure||item.quantity_confirmed_sold||0), unsold=Math.max(0,Number(item.quantity_delivered||item.quantity_suggested||0)-sold);
+      if(sold>0){
+        db.prepare('UPDATE kit_items SET quantity_delivered=?,quantity_available=0,quantity_pending_closure=? WHERE id=?').run(sold,sold,item.id);
+        db.prepare('INSERT INTO kit_item_reconciliations (kit_id,kit_item_id,quantity_sold_confirmed,quantity_returned,finalized,created_by) VALUES (?,?,?,?,1,?)').run(kitId,item.id,sold,0,req.user.id);
+      } else { db.prepare('UPDATE kit_items SET kit_id=? WHERE id=?').run(newKitId,item.id); }
+      if(sold>0 && unsold>0){ db.prepare('INSERT INTO kit_items (kit_id,product_id,quantity_suggested,quantity_delivered,quantity_available,quantity_confirmed_sold,quantity_pending_closure,quantity_returned,unit_sale_price_cents,last_purchase_cost_cents) SELECT ?,product_id,?,?,?,?,0,0,unit_sale_price_cents,last_purchase_cost_cents FROM kit_items WHERE id=?').run(newKitId,unsold,unsold,unsold,0,item.id); }
+    }
+    db.prepare("UPDATE kits SET status='aguardando_fechamento', closure_requested_at=datetime('now') WHERE id=?").run(kitId);
+    db.exec('COMMIT');
+    const closure=kitService.approveClosure(kitId,req.user);
+    sendJson(res,200,{ok:true,closed_kit_id:kitId,new_kit_id:newKitId,closure});
+  }catch(e){try{db.exec('ROLLBACK')}catch(_){} sendJson(res,400,{error:e.message});}
+},{roles:['ceo']}));
+
 // ADMIN: Transferir um kit para outra revendedora (correção de cadastro).
 // Muda o reseller_id do kit (e mantém os itens entregues/disponíveis com a nova
 // revendedora). NÃO mexe em estoque físico, pois os itens continuam com a mesma
