@@ -2959,6 +2959,11 @@ server.listen(PORT, '0.0.0.0', async () => {
 
 module.exports = server;
 
+// ADMIN: Ajustar setor/categoria de produto.
+router.post('/api/admin/update-product-category', requireAuth(async (req,res) => {
+  try { const b=await readJsonBody(req); const id=Number(b.product_id); const category=String(b.category||'').trim(); if(!id||!category) return sendJson(res,400,{error:'product_id e category são obrigatórios'}); const p=db.prepare('SELECT id,name FROM products WHERE id=?').get(id); if(!p) return sendJson(res,404,{error:'Produto não encontrado'}); db.prepare('UPDATE products SET category=? WHERE id=?').run(category,id); sendJson(res,200,{ok:true,product:{id,name:p.name,category}}); } catch(e){sendJson(res,400,{error:e.message});}
+}));
+
 // ADMIN: Update product images
 router.post('/api/admin/update-product-images', requireAuth(async (req, res) => {
   try {
