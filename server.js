@@ -2142,6 +2142,14 @@ router.post('/api/admin/split-kit-sales', requireAuth(async (req,res) => {
   }catch(e){try{db.exec('ROLLBACK')}catch(_){} sendJson(res,400,{error:e.message});}
 },{roles:['ceo']}));
 
+// ADMIN: Unir kits entregues da mesma revendedora, preservando quantidades e vendas.
+router.post('/api/admin/merge-kits', requireAuth(async (req,res) => {
+  try { const b=await readJsonBody(req), targetId=Number(b.target_kit_id), sourceIds=(b.source_kit_ids||[]).map(Number), target=db.prepare('SELECT * FROM kits WHERE id=?').get(targetId); if(!target||!sourceIds.length) return sendJson(res,400,{error:'Informe kit principal e kits a unir'}); if(target.status!=='entregue') throw new Error('O kit principal precisa estar entregue'); db.exec('BEGIN');
+    for(const sid of sourceIds){ const source=db.prepare('SELECT * FROM kits WHERE id=?').get(sid); if(!source||source.reseller_id!==target.reseller_id||source.status!=='entregue') throw new Error(`Kit #${sid} inválido para união`); const items=db.prepare('SELECT * FROM kit_items WHERE kit_id=?').all(sid); for(const it of items){ const existing=db.prepare('SELECT * FROM kit_items WHERE kit_id=? AND product_id=?').get(targetId,it.product_id); if(existing){ db.prepare('UPDATE kit_items SET quantity_suggested=quantity_suggested+?,quantity_delivered=quantity_delivered+?,quantity_available=quantity_available+?,quantity_pending_closure=quantity_pending_closure+?,quantity_confirmed_sold=quantity_confirmed_sold+?,quantity_returned=quantity_returned+?,unit_sale_price_cents=? WHERE id=?').run(it.quantity_suggested,it.quantity_delivered,it.quantity_available,it.quantity_pending_closure,it.quantity_confirmed_sold,it.quantity_returned,it.unit_sale_price_cents,existing.id); db.prepare('DELETE FROM kit_items WHERE id=?').run(it.id); } else db.prepare('UPDATE kit_items SET kit_id=? WHERE id=?').run(targetId,it.id); } db.prepare('UPDATE kits SET status=\'rejeitado\' WHERE id=?').run(sid); }
+    db.exec('COMMIT'); sendJson(res,200,{ok:true,target_kit_id:targetId,merged_kit_ids:sourceIds,kit:kitService.getKit(targetId)});
+  } catch(e){try{db.exec('ROLLBACK')}catch(_){} sendJson(res,400,{error:e.message});}
+},{roles:['ceo']}));
+
 // ADMIN: Transferir um kit para outra revendedora (correção de cadastro).
 // Muda o reseller_id do kit (e mantém os itens entregues/disponíveis com a nova
 // revendedora). NÃO mexe em estoque físico, pois os itens continuam com a mesma
