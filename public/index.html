@@ -996,9 +996,6 @@ async function suggestKit() {
   if (kitItems.length === 0) return toast('Adicione pelo menos um produto ao kit.');
   
   var kitTotal = kitItems.reduce(function(s, i) { return s + (i.quantity * i.price / 100); }, 0);
-  if (kitTotal > KIT_LIMIT_REAIS) {
-    return toast('⚠️ O kit está em R$ ' + kitTotal.toFixed(2) + ' — acima do limite de R$ ' + KIT_LIMIT_REAIS.toFixed(2) + '. Remova itens antes de criar.');
-  }
   
   try {
     await api('/api/kits/suggest', {method:'POST', body:JSON.stringify({
