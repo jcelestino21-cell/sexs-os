@@ -2436,6 +2436,11 @@ router.post('/api/admin/force-reject-sales', requireAuth(async (req, res) => {
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Update unit_sale_price_cents for kit items, including recorded sales.
+router.post('/api/admin/update-kit-item-and-sales-prices', requireAuth(async (req,res) => {
+  try { const b=await readJsonBody(req), updates=b.updates||[]; let n=0; for(const u of updates){const id=Number(u.kit_item_id), price=Number(u.unit_sale_price_cents); if(!id||!price) continue; db.prepare('UPDATE kit_items SET unit_sale_price_cents=? WHERE id=?').run(price,id); db.prepare('UPDATE kit_sales SET unit_price_cents=? WHERE kit_item_id=?').run(price,id); n++;} sendJson(res,200,{ok:true,updated_count:n}); } catch(e){sendJson(res,400,{error:e.message});}
+}));
+
 // ADMIN: Update unit_sale_price_cents for kit items
 router.post('/api/admin/update-kit-item-prices', requireAuth(async (req, res) => {
   try {
