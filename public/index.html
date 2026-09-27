@@ -2129,29 +2129,13 @@ async function renderPortalOrders() {
   var v = $('#portal-orders'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
   try {
-    var [ordersData, prodData] = await Promise.all([
-      api('/api/portal/orders', {token: S.token}),
-      api('/api/portal/products', {token: S.token})
-    ]);
+    var ordersData = await api('/api/portal/orders', {token: S.token});
     
     var statusLabels = {pendente: '⏳ Pendente', atendido: '✅ Atendido', separado: '📦 Separado', cancelado: '❌ Cancelado'};
     var statusColors = {pendente: '#ffa500', atendido: '#4ade80', separado: '#3b82f6', cancelado: '#ff6b6b'};
     
-    // Formulário de novo pedido
-    var newOrderHtml = '<div class="panel" style="margin-bottom:20px">' +
-      '<div class="st" style="margin-top:0">📋 Fazer Novo Pedido</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">' +
-        '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--t3);text-transform:uppercase;display:block;margin-bottom:4px">Produto</label>' +
-          '<select id="orderProduct" style="width:100%">' +
-            prodData.products.map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('') +
-          '</select></div>' +
-        '<div style="flex:0.5;min-width:70px"><label style="font-size:11px;color:var(--t3);text-transform:uppercase;display:block;margin-bottom:4px">Qtd</label>' +
-          '<input id="orderQty" type="number" min="1" value="1" style="width:100%" /></div>' +
-        '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--t3);text-transform:uppercase;display:block;margin-bottom:4px">Observação</label>' +
-          '<input id="orderNote" placeholder="ex: urgente" style="width:100%" /></div>' +
-        '<button class="btn-s" onclick="submitOrder()" style="padding:12px 20px;background:var(--ag);color:var(--bg);border:none;font-weight:600;border-radius:var(--r1);cursor:pointer">Pedir</button>' +
-      '</div></div>';
-    
+    // Pedidos feitos pelo catálogo são apenas listados aqui.
+    var newOrderHtml = '';
     // Lista de pedidos — reduzir poluição visual:
     //  - Pendentes: sempre visíveis
     //  - Atendidos/Separados: visíveis temporariamente por 1 dia (para a revendedora
@@ -2185,7 +2169,7 @@ async function renderPortalOrders() {
             '<td style="text-align:center">'+actions+'</td></tr>';
         }).join('') + '</table></div>';
     } else {
-      ordersHtml = '<div class="panel"><div class="empty">Nenhum pedido feito ainda. Use o formulário acima para pedir produtos! 📋</div></div>';
+      ordersHtml = '<div class="panel"><div class="empty">Nenhum pedido feito ainda. Para pedir produtos, acesse o Catálogo. 🛍️</div></div>';
     }
     
     v.innerHTML = newOrderHtml + ordersHtml;
