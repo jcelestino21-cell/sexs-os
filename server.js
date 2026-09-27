@@ -1241,6 +1241,11 @@ router.get('/api/documents/:id/download', requireCapability('documents:read', as
   }
 }));
 
+// ADMIN: Baixar pedidos atendidos parcialmente ou totalmente pelo kit entregue.
+router.post('/api/admin/reconcile-order', requireAuth(async (req,res) => {
+  try { const b=await readJsonBody(req), id=Number(b.order_id), remaining=Number(b.remaining_quantity); const o=db.prepare('SELECT * FROM reseller_orders WHERE id=?').get(id); if(!o) return sendJson(res,404,{error:'Pedido não encontrado'}); if(remaining<=0){db.prepare("UPDATE reseller_orders SET quantity_fulfilled=quantity_requested,status='atendido',updated_at=datetime('now') WHERE id=?").run(id);} else {db.prepare("UPDATE reseller_orders SET quantity_requested=?,quantity_fulfilled=0,status='pendente',updated_at=datetime('now') WHERE id=?").run(remaining,id);} sendJson(res,200,{ok:true,order:db.prepare('SELECT * FROM reseller_orders WHERE id=?').get(id)}); } catch(e){sendJson(res,400,{error:e.message});}
+},{roles:['ceo']}));
+
 // ---- Pedidos consolidados (Diego) ----
 router.get('/api/orders/consolidated', requireCapability('orders:read', (req, res) => {
   sendJson(res, 200, { demand: ordersService.consolidatedDemand() });
