@@ -1393,6 +1393,12 @@ router.get('/api/dashboard/charts', requireAuth((req, res) => {
   }
 }, { roles: ['ceo'] }));
 
+router.post('/api/financial/manual-expenses', requireCapability('financial:write', async (req,res) => {
+  try { const b=await readJsonBody(req), items=b.items||[]; const out=[]; for(const x of items){const amount=Math.round(Number(x.amount_cents)); if(!amount||!x.description) continue; const r=db.prepare("INSERT INTO expenses (category,description,amount_cents,created_by,created_at) VALUES (?,?,?,?,datetime('now'))").run(x.category||'Outros',x.description,amount,req.user.id); out.push({id:r.lastInsertRowid,description:x.description,amount_cents:amount});} sendJson(res,200,{ok:true,expenses:out}); } catch(e){sendJson(res,400,{error:e.message});}
+}));
+
+router.post('/api/admin/reminder-flavia', requireAuth((req,res) => { try { const n=notificationService.notify({recipientRole:'revendedora',type:'kit.settlement_pending',entityType:'kit',entityId:26,message:'Kit #26 — Flavia (ciclo 2) está pendente de acerto.'}); sendJson(res,200,{ok:true,notification:n}); } catch(e){sendJson(res,400,{error:e.message});} }, {roles:['ceo']}));
+
 // ---- Financeiro ----
 router.get('/api/financial/summary', requireCapability('financial:read', (req, res) => {
   sendJson(res, 200, { summary: financeService.financialSummary(new URL(req.url, 'http://local').searchParams.get('month')) });
