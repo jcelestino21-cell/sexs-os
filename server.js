@@ -976,7 +976,7 @@ router.get('/api/portal/kits', requireReseller((req, res) => {
   const allKits = kitService.listKits({ resellerId: req.user.reseller_id });
   // Esconder kits rejeitados da revendedora
   const visibleKits = allKits.filter(k => k.status !== 'rejeitado');
-  sendJson(res, 200, { kits: visibleKits });
+  sendJson(res, 200, { kits: visibleKits, settlement_reminder: req.user.reseller_id === 2 ? 'Kit #26 — Flavia (ciclo 2) está pendente de acerto.' : null });
 }));
 
 router.get('/api/portal/kits/:id', requireReseller((req, res, params) => {
@@ -1397,7 +1397,8 @@ router.post('/api/financial/manual-expenses', requireCapability('financial:write
   try { const b=await readJsonBody(req), items=b.items||[]; const out=[]; for(const x of items){const amount=Math.round(Number(x.amount_cents)); if(!amount||!x.description) continue; const r=db.prepare("INSERT INTO expenses (category,description,amount_cents,created_by,created_at) VALUES (?,?,?,?,datetime('now'))").run(x.category||'Outros',x.description,amount,req.user.id); out.push({id:r.lastInsertRowid,description:x.description,amount_cents:amount});} sendJson(res,200,{ok:true,expenses:out}); } catch(e){sendJson(res,400,{error:e.message});}
 }));
 
-router.post('/api/admin/reminder-flavia', requireAuth((req,res) => { try { const n=notificationService.notify({recipientRole:'revendedora',type:'kit.settlement_pending',entityType:'kit',entityId:26,message:'Kit #26 — Flavia (ciclo 2) está pendente de acerto.'}); sendJson(res,200,{ok:true,notification:n}); } catch(e){sendJson(res,400,{error:e.message});} }, {roles:['ceo']}));
+router.post('/api/admin/reminder-flavia', requireAuth((req,res) => { try { db.prepare("DELETE FROM notifications WHERE type='kit.settlement_pending' AND entity_id=26").run(); const n=notificationService.notify({recipientRole:'revendedora',type:'kit.settlement_pending',entityType:'kit',entityId:26,message:'Kit #26 — Flavia (ciclo 2) está pendente de acerto.'}); sendJson(res,200,{ok:true,notification:n}); } catch(e){sendJson(res,400,{error:e.message});} }, {roles:['ceo']}));
+router.post('/api/admin/clear-reminder-flavia', requireAuth((req,res) => { if(req.user.role!=='ceo') return sendJson(res,403,{error:'Acesso negado'}); db.prepare("DELETE FROM notifications WHERE type='kit.settlement_pending' AND entity_id=26").run(); sendJson(res,200,{ok:true}); }));
 
 // ---- Financeiro ----
 router.get('/api/financial/summary', requireCapability('financial:read', (req, res) => {

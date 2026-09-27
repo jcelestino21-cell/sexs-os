@@ -2221,8 +2221,9 @@ async function renderPortalKits() {
   var v = $('#portal-kits'); if(!v) return;
   try {
     var data = await api('/api/portal/kits', {token: S.token});
+    var reminderHtml = data.settlement_reminder ? '<div class="panel" style="border:2px solid #f59e0b;background:rgba(245,158,11,.10);color:#fbbf24;margin-bottom:14px"><b>🔔 Lembrete de acerto</b><br>'+esc(data.settlement_reminder)+'</div>' : '';
     if (!data.kits || !data.kits.length) {
-      v.innerHTML = '<div class="panel"><div class="empty">Nenhum kit disponível ainda.</div></div>';
+      v.innerHTML = reminderHtml + '<div class="panel"><div class="empty">Nenhum kit disponível ainda.</div></div>';
       return;
     }
     
@@ -2230,7 +2231,7 @@ async function renderPortalKits() {
     var activeKits = data.kits.filter(function(k) { return k.status !== 'encerrado'; });
     
     if (!activeKits.length) {
-      v.innerHTML = '<div class="panel"><div class="empty">Seu kit anterior foi encerrado. Aguarde o próximo kit! 📦</div></div>';
+      v.innerHTML = reminderHtml + '<div class="panel"><div class="empty">Seu kit anterior foi encerrado. Aguarde o próximo kit! 📦</div></div>';
       return;
     }
     
@@ -2257,7 +2258,7 @@ async function renderPortalKits() {
       });
       
       html += '</div>';
-      v.innerHTML = html;
+      v.innerHTML = reminderHtml + html;
       return;
     }
     
@@ -2316,7 +2317,7 @@ async function renderPortalKits() {
     }
     
     html += '</div>';
-    v.innerHTML = html;
+    v.innerHTML = reminderHtml + html;
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
 }
 
