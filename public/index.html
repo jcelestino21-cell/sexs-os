@@ -2093,7 +2093,7 @@ async function renderPortalCatalog() {
         if (p.description) html += '<div style="font-size:11px;color:var(--t3);margin-top:2px">' + esc(p.description) + '</div>';
         html += '<div style="font-size:10px;margin-top:2px;color:' + (inStock ? '#4ade80' : 'var(--t3)') + '">' + (inStock ? '📦 Disponível no armazém' : '🔔 Sob encomenda') + '</div>';
         html += '</div>';
-        html += '<div style="text-align:right;font-family:Playfair Display,serif;font-size:18px;font-weight:600;color:var(--ac);white-space:nowrap">R$ ' + price.toFixed(2) + '</div>';
+        html += '<div style="text-align:right;white-space:nowrap"><div style="font-family:Playfair Display,serif;font-size:18px;font-weight:600;color:var(--ac)">R$ ' + price.toFixed(2) + '</div><div style="display:flex;gap:4px;justify-content:flex-end;margin-top:5px"><input id="order-qty-'+p.id+'" type="number" min="1" value="1" style="width:52px;padding:4px" aria-label="Quantidade"><button class="btn-sm ok" onclick="requestCatalogProduct('+p.id+',\''+esc(p.name).replace(/'/g,"\\'")+'\')">Pedir</button></div></div>';
         html += '</div>';
       });
       
@@ -2103,6 +2103,16 @@ async function renderPortalCatalog() {
     html += '</div>';
     v.innerHTML = html;
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">' + esc(e.message) + '</div></div>'; }
+}
+
+async function requestCatalogProduct(productId, productName) {
+  var input = document.getElementById('order-qty-' + productId);
+  var qty = parseInt(input && input.value, 10) || 0;
+  if (qty < 1) return toast('Informe uma quantidade válida.');
+  try {
+    await api('/api/portal/orders', {method:'POST', token:S.token, body:JSON.stringify({product_id:productId, quantity:qty})});
+    toast('Pedido de '+qty+'x '+productName+' enviado! ✅', 'ok');
+  } catch(e) { toast(e.message); }
 }
 
 function filterCatalog() {
