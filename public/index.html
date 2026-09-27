@@ -338,7 +338,6 @@ async function renderApp() {
     if (S.user.role === 'ceo') tabs.push({k:'goals',l:'🎯 Metas'});
     if (can('stock:read')) tabs.push({k:'stock',l:'📦 Estoque'});
     
-    if (S.user.role === 'ceo') tabs.push({k:'resellerMsgs',l:'💬 Recados'});
     if (S.user.role === 'ceo') tabs.push({k:'audit',l:'Auditoria'});
 
     var root = $('#app');
@@ -2037,7 +2036,7 @@ async function renderAudit() {
 function renderPortal() {
   var root = $('#app');
   root.innerHTML = '<div class="hdr"><div class="hdr-brand"><img src="/logo-sm.png" alt="SexS" class="hdr-logo" /><div><div class="hdr-title">Portal da Revendedora</div><div class="hdr-sub">Bem-vinda, '+esc(S.user.name)+'</div></div></div><button class="logout" onclick="logout()">sair</button></div>' +
-    '<div class="tabs"><button class="tab active" onclick="switchPortalTab(\'kits\')">📦 Meus Kits</button><button class="tab" onclick="switchPortalTab(\'sales\')">📊 Minhas Vendas</button><button class="tab" onclick="switchPortalTab(\'catalog\')">🛍️ Catálogo</button><button class="tab" onclick="switchPortalTab(\'orders\')">📋 Pedidos</button><button class="tab" onclick="switchPortalTab(\'messages\')">💬 Recados</button><button class="tab" onclick="switchPortalTab(\'ranking\')">🏆 Ranking</button><button class="tab" onclick="switchPortalTab(\'tips\')">💡 Dicas</button></div>' +
+    '<div class="tabs"><button class="tab active" onclick="switchPortalTab(\'kits\')">📦 Meus Kits</button><button class="tab" onclick="switchPortalTab(\'sales\')">📊 Minhas Vendas</button><button class="tab" onclick="switchPortalTab(\'catalog\')">🛍️ Catálogo</button><button class="tab" onclick="switchPortalTab(\'orders\')">📋 Pedidos</button><button class="tab" onclick="switchPortalTab(\'ranking\')">🏆 Ranking</button><button class="tab" onclick="switchPortalTab(\'tips\')">💡 Dicas</button></div>' +
     '<div id="portal-kits" class="view active"></div><div id="portal-sales" class="view"></div><div id="portal-catalog" class="view"></div><div id="portal-orders" class="view"></div><div id="portal-messages" class="view"></div><div id="portal-ranking" class="view"></div><div id="portal-tips" class="view"></div>';
   renderPortalKits();
 }
