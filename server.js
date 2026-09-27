@@ -2979,6 +2979,11 @@ server.listen(PORT, '0.0.0.0', async () => {
 
 module.exports = server;
 
+// ADMIN: Redefinir senha de uma revendedora.
+router.post('/api/admin/reset-reseller-password', requireAuth(async (req,res) => {
+  try { const b=await readJsonBody(req), username=String(b.username||'').trim().toLowerCase(), password=String(b.password||''); if(!username||!password) return sendJson(res,400,{error:'username e password são obrigatórios'}); const user=db.prepare("SELECT id,name FROM users WHERE username=? AND role='revendedora'").get(username); if(!user) return sendJson(res,404,{error:'Revendedora não encontrada'}); const h=auth.hashPassword(password); db.prepare('UPDATE users SET password_hash=?,password_salt=? WHERE id=?').run(h.hash,h.salt,user.id); sendJson(res,200,{ok:true,username,name:user.name}); } catch(e){sendJson(res,400,{error:e.message});}
+},{roles:['ceo']}));
+
 // ADMIN: Ajustar setor/categoria de produto.
 router.post('/api/admin/update-product-category', requireAuth(async (req,res) => {
   try { const b=await readJsonBody(req); const id=Number(b.product_id); const category=String(b.category||'').trim(); if(!id||!category) return sendJson(res,400,{error:'product_id e category são obrigatórios'}); const p=db.prepare('SELECT id,name FROM products WHERE id=?').get(id); if(!p) return sendJson(res,404,{error:'Produto não encontrado'}); db.prepare('UPDATE products SET category=? WHERE id=?').run(category,id); sendJson(res,200,{ok:true,product:{id,name:p.name,category}}); } catch(e){sendJson(res,400,{error:e.message});}
