@@ -2984,6 +2984,9 @@ server.listen(PORT, '0.0.0.0', async () => {
 
 module.exports = server;
 
+// ADMIN: Criar usuário de análise com acesso somente leitura.
+router.post('/api/admin/create-readonly-user', requireAuth(async (req,res) => { try { const b=await readJsonBody(req), name=String(b.name||'').trim(), username=String(b.username||'').trim().toLowerCase(), password=String(b.password||''); if(!name||!username||!password) return sendJson(res,400,{error:'name, username e password são obrigatórios'}); if(db.prepare('SELECT id FROM users WHERE username=?').get(username)) return sendJson(res,409,{error:'Usuário já existe'}); const h=auth.hashPassword(password); const x=db.prepare("INSERT INTO users (name,username,role,director_key,password_hash,password_salt) VALUES (?,?,'diretor','mentor_analise',?,?)").run(name,username,h.hash,h.salt); sendJson(res,200,{ok:true,user:{id:x.lastInsertRowid,name,username,role:'leitura_apenas'}}); } catch(e){sendJson(res,400,{error:e.message});} }, {roles:['ceo']}));
+
 // ADMIN: Redefinir senha de uma revendedora.
 router.post('/api/admin/reset-reseller-password', requireAuth(async (req,res) => {
   try { const b=await readJsonBody(req), username=String(b.username||'').trim().toLowerCase(), password=String(b.password||''); if(!username||!password) return sendJson(res,400,{error:'username e password são obrigatórios'}); const user=db.prepare("SELECT id,name FROM users WHERE username=? AND role='revendedora'").get(username); if(!user) return sendJson(res,404,{error:'Revendedora não encontrada'}); const h=auth.hashPassword(password); db.prepare('UPDATE users SET password_hash=?,password_salt=? WHERE id=?').run(h.hash,h.salt,user.id); sendJson(res,200,{ok:true,username,name:user.name}); } catch(e){sendJson(res,400,{error:e.message});}

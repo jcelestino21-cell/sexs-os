@@ -45,6 +45,7 @@ function hasCapability(user, capability) {
   if (!user) return false;
   if (user.role === 'ceo') return true;
   if (user.role !== 'diretor') return false;
+  if (user.director_key === 'mentor_analise') return capability.endsWith(':read') || capability === 'council:view';
   if (UNIVERSAL_DIRECTOR_CAPABILITIES.has(capability)) return true;
   const caps = DIRECTOR_CAPABILITIES[user.director_key];
   return caps ? caps.has(capability) : false;
@@ -56,6 +57,7 @@ function capabilitiesFor(user) {
   if (!user) return [];
   if (user.role === 'ceo') return ['*'];
   if (user.role !== 'diretor') return [];
+  if (user.director_key === 'mentor_analise') return ['stock:read','products:read','suppliers:read','kits:read','orders:read','resellers:read','financial:read','commission:read','pricing:read','ranking:read','commercial:read','goals:read','marketing:read','documents:read','advisory:read','council:view'];
   const caps = DIRECTOR_CAPABILITIES[user.director_key] || new Set();
   return [...caps, ...UNIVERSAL_DIRECTOR_CAPABILITIES];
 }
