@@ -1246,6 +1246,16 @@ router.post('/api/admin/reconcile-order', requireAuth(async (req,res) => {
   try { const b=await readJsonBody(req), id=Number(b.order_id), remaining=Number(b.remaining_quantity); const o=db.prepare('SELECT * FROM reseller_orders WHERE id=?').get(id); if(!o) return sendJson(res,404,{error:'Pedido não encontrado'}); if(remaining<=0){db.prepare("UPDATE reseller_orders SET quantity_fulfilled=quantity_requested,status='atendido',updated_at=datetime('now') WHERE id=?").run(id);} else {db.prepare("UPDATE reseller_orders SET quantity_requested=?,quantity_fulfilled=0,status='pendente',updated_at=datetime('now') WHERE id=?").run(remaining,id);} sendJson(res,200,{ok:true,order:db.prepare('SELECT * FROM reseller_orders WHERE id=?').get(id)}); } catch(e){sendJson(res,400,{error:e.message});}
 },{roles:['ceo']}));
 
+router.get('/api/mentor/reseller-portals', requireCapability('resellers:read', (req,res) => {
+  if (req.user.director_key !== 'mentor_analise') return sendJson(res,403,{error:'Acesso restrito'});
+  const resellers=db.prepare("SELECT id,name,commission_pct FROM resellers WHERE status='ativa' ORDER BY name").all();
+  const kits=db.prepare("SELECT k.id,k.reseller_id,k.cycle_number,k.status,k.created_at,r.name reseller_name FROM kits k JOIN resellers r ON r.id=k.reseller_id WHERE k.status NOT IN ('rejeitado') ORDER BY k.id DESC").all();
+  const sales=db.prepare("SELECT ks.id,ks.kit_item_id,ks.quantity,ks.unit_price_cents,ks.status,ks.created_at,k.id kit_id,k.reseller_id,r.name reseller_name,p.name product_name FROM kit_sales ks JOIN kit_items ki ON ki.id=ks.kit_item_id JOIN kits k ON k.id=ki.kit_id JOIN resellers r ON r.id=k.reseller_id JOIN products p ON p.id=ki.product_id WHERE k.status NOT IN ('rejeitado') ORDER BY ks.created_at DESC").all();
+  const orders=db.prepare("SELECT o.*,r.name reseller_name,p.name product_name FROM reseller_orders o JOIN resellers r ON r.id=o.reseller_id JOIN products p ON p.id=o.product_id ORDER BY o.id DESC").all();
+  const ranking=db.prepare("SELECT r.name,COALESCE(SUM(ks.quantity*ks.unit_price_cents),0) total_cents FROM resellers r LEFT JOIN kits k ON k.reseller_id=r.id LEFT JOIN kit_items ki ON ki.kit_id=k.id LEFT JOIN kit_sales ks ON ks.kit_item_id=ki.id AND ks.status IN ('confirmada','informada') WHERE r.status='ativa' GROUP BY r.id ORDER BY total_cents DESC").all();
+  sendJson(res,200,{resellers,kits,sales,orders,ranking});
+}));
+
 // ---- Pedidos consolidados (Diego) ----
 router.get('/api/orders/consolidated', requireCapability('orders:read', (req, res) => {
   sendJson(res, 200, { demand: ordersService.consolidatedDemand() });

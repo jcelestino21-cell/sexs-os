@@ -331,6 +331,7 @@ async function renderApp() {
     var tabs = [];
     if (S.user.role === 'ceo') tabs.push({k:'dashboard',l:'✦ Painel'});
     if (can('resellers:read')) tabs.push({k:'resellers',l:'👥 Revendedoras'});
+    if (S.user.director_key === 'mentor_analise') tabs.push({k:'mentor-portals',l:'🧾 Portais das Revendedoras'});
     if (S.user.role === 'ceo') tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('kits:read')) tabs.push({k:'kits',l:'📦 Kits'});
     if (can('kits:read')) tabs.push({k:'products-resellers',l:'🔍 Produtos com Clientes'});
@@ -396,7 +397,8 @@ function switchTab(tab) {
     stock:renderStock,
     kitdetails:renderKitDetails,
     resellerMsgs:renderResellerMessages,
-    audit:renderAudit
+    audit:renderAudit,
+    'mentor-portals':renderMentorPortals
   };
   if (r[tab]) r[tab]();
 }
@@ -1497,6 +1499,16 @@ async function addItemToKit(kitId) {
   } catch(e) {
     toast('Erro: ' + e.message);
   }
+}
+
+async function renderMentorPortals() {
+  var v=$('#v-mentor-portals'); if(!v)return; v.innerHTML='<div class="panel"><div class="empty">Carregando portais...</div></div>';
+  try { var d=await api('/api/mentor/reseller-portals'); var h='<div class="panel"><div class="st" style="margin-top:0">🧾 Portais das Revendedoras — consulta</div><div style="font-size:12px;color:var(--t2);margin-bottom:14px">Acesso somente leitura.</div>';
+    h+='<table style="width:100%"><tr><th>Revendedora</th><th>Kits ativos</th><th>Vendas informadas/confirmadas</th><th>Total</th></tr>';
+    d.resellers.forEach(function(r){var ks=d.kits.filter(function(k){return k.reseller_id===r.id&&['entregue','aguardando_fechamento'].indexOf(k.status)>=0}).length;var ss=d.sales.filter(function(s){return s.reseller_id===r.id});var total=ss.reduce(function(a,s){return a+s.quantity*s.unit_price_cents},0);h+='<tr><td>'+esc(r.name)+'</td><td>'+ks+'</td><td>'+ss.length+'</td><td>'+fmt(total)+'</td></tr>';});h+='</table></div>';
+    h+='<div class="panel"><div class="st" style="margin-top:0">🏆 Ranking</div><table style="width:100%"><tr><th>#</th><th>Revendedora</th><th style="text-align:right">Vendas</th></tr>'+d.ranking.map(function(r,i){return '<tr><td>'+(i+1)+'</td><td>'+esc(r.name)+'</td><td style="text-align:right">'+fmt(r.total_cents)+'</td></tr>';}).join('')+'</table></div>';
+    h+='<div class="panel"><div class="st" style="margin-top:0">📋 Pedidos</div><table style="width:100%"><tr><th>Revendedora</th><th>Produto</th><th>Qtd</th><th>Status</th></tr>'+d.orders.map(function(o){return '<tr><td>'+esc(o.reseller_name)+'</td><td>'+esc(o.product_name)+'</td><td>'+o.quantity_requested+'</td><td>'+esc(o.status)+'</td></tr>';}).join('')+'</table></div>';v.innerHTML=h;
+  } catch(e){v.innerHTML='<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>';}
 }
 
 async function renderFinancial() {
