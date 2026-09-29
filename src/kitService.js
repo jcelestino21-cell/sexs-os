@@ -574,7 +574,7 @@ function rankingFull() {
     FROM resellers r
     LEFT JOIN kits k ON k.reseller_id = r.id
     LEFT JOIN kit_items ki ON ki.kit_id = k.id
-    LEFT JOIN kit_sales ks ON ks.kit_item_id = ki.id AND ks.status = 'confirmada'
+    LEFT JOIN kit_sales ks ON ks.kit_item_id = ki.id AND ks.status IN ('confirmada','informada')
     WHERE r.status = 'ativa'
     GROUP BY r.id ORDER BY total_cents DESC
   `).all();
