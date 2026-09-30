@@ -1345,7 +1345,24 @@ router.get('/api/dashboard/charts', requireAuth((req, res) => {
       LIMIT 10
     `).all();
     
-    // 4. Status dos kits
+    // 4. Produto mais vendido por revendedora
+    const topProductByReseller = db.prepare(`
+      SELECT reseller_name, product_name, units_sold, revenue_cents FROM (
+        SELECT r.name as reseller_name, p.name as product_name,
+               SUM(ks.quantity) as units_sold,
+               SUM(ks.quantity * ks.unit_price_cents) as revenue_cents,
+               ROW_NUMBER() OVER (PARTITION BY r.id ORDER BY SUM(ks.quantity) DESC, SUM(ks.quantity * ks.unit_price_cents) DESC) as pos
+        FROM kit_sales ks
+        JOIN kit_items ki ON ki.id = ks.kit_item_id
+        JOIN kits k ON k.id = ki.kit_id
+        JOIN resellers r ON r.id = k.reseller_id
+        JOIN products p ON p.id = ki.product_id
+        WHERE ks.status IN ('confirmada','informada')
+        GROUP BY r.id, p.id
+      ) WHERE pos = 1 ORDER BY units_sold DESC
+    `).all();
+
+    // 5. Status dos kits
     const kitsByStatus = db.prepare('SELECT status, COUNT(*) as count FROM kits GROUP BY status').all();
     
     // 5. Alertas
@@ -1399,6 +1416,7 @@ router.get('/api/dashboard/charts', requireAuth((req, res) => {
         sales_by_reseller: salesByReseller,
         sales_trend: salesTrend,
         top_products: topProducts,
+        top_product_by_reseller: topProductByReseller,
         kits_by_status: kitsByStatus
       },
       alerts: alerts

@@ -447,7 +447,8 @@ async function renderDashboard() {
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">' +
       '<div class="panel" style="margin:0"><div class="st" style="margin-top:0">🏆 Top 5 Produtos</div><canvas id="chartProducts" style="max-height:300px"></canvas></div>' +
       '<div class="panel" style="margin:0"><div class="st" style="margin-top:0">📦 Status dos Kits</div><canvas id="chartKits" style="max-height:300px"></canvas></div>' +
-      '</div>';
+      '</div>' +
+      '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">🏅 Produto que cada revendedora mais vende</div><canvas id="chartTopProductReseller" style="max-height:340px"></canvas></div>';
     
     // Estoque baixo
     var lowStockHtml = '';
@@ -634,6 +635,28 @@ function renderCharts(charts) {
             labels: { padding: 15 }
           }
         }
+      }
+    });
+  }
+
+  // Produto líder de cada revendedora, incluindo vendas informadas e confirmadas.
+  var ctxTopByReseller = document.getElementById('chartTopProductReseller');
+  if (ctxTopByReseller && charts.top_product_by_reseller && charts.top_product_by_reseller.length) {
+    new Chart(ctxTopByReseller, {
+      type: 'bar',
+      data: {
+        labels: charts.top_product_by_reseller.map(function(x){ return x.reseller_name; }),
+        datasets: [{
+          label: 'Unidades do produto líder',
+          data: charts.top_product_by_reseller.map(function(x){ return x.units_sold; }),
+          backgroundColor: colors.slice(0, charts.top_product_by_reseller.length),
+          borderWidth: 1
+        }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: true,
+        plugins: { tooltip: { callbacks: { afterLabel: function(ctx){ return charts.top_product_by_reseller[ctx.dataIndex].product_name; } } }, legend: { display: false } },
+        scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
       }
     });
   }
