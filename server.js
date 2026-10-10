@@ -2337,10 +2337,14 @@ router.post('/api/admin/adjust-stock', requireAuth(async (req, res) => {
         results.push({ id: pid, error: 'saldo negativo', current: bal, diff });
         continue;
       }
+      const reason = typeof adj.reason === 'string' && adj.reason.trim() ? adj.reason.trim().slice(0, 200) : 'Ajuste para estoque original';
       db.prepare('INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)')
-        .run(pid, diff > 0 ? 'ajuste_positivo' : 'ajuste_negativo', diff, newBal, 'Ajuste para estoque original', req.user.id);
+        .run(pid, diff > 0 ? 'ajuste_positivo' : 'ajuste_negativo', diff, newBal, reason, req.user.id);
       results.push({ id: pid, ok: true, old: bal, new: newBal, diff });
     }
+    const applied = results.filter(r => r.ok);
+    if (applied.length) logAudit({ actorUserId: req.user.id, actorLabel: req.user.name, action: 'stock.adjust', entityType: 'stock',
+      details: { count: applied.length, reason: (Array.isArray(adjustments) && adjustments[0] && adjustments[0].reason) || 'Ajuste para estoque original' } });
     sendJson(res, 200, { ok: true, results });
   } catch (e) { sendJson(res, 500, { error: e.message }); }
 }, { roles: ['ceo'] }));
