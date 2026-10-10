@@ -2349,6 +2349,57 @@ router.post('/api/admin/adjust-stock', requireAuth(async (req, res) => {
   } catch (e) { sendJson(res, 500, { error: e.message }); }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Entrada de estoque (compra). Resolve o produto pelo ID ou pelo nome exato e,
+// quando `create_if_missing` for verdadeiro, cria o cadastro com preços derivados da regra ativa.
+router.post('/api/admin/stock-in', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const items = Array.isArray(body) ? body : body.items;
+    if (!Array.isArray(items) || !items.length) return sendJson(res, 400, { error: 'items deve ser um array não vazio' });
+    const reason = (typeof body.reason === 'string' && body.reason.trim()) ? body.reason.trim().slice(0, 200) : 'Entrada de estoque';
+    const { simulatePricing } = require('./src/pricing');
+    const rule = proposalService.getActivePricingRule();
+    const results = [];
+    for (const item of items) {
+      const qty = Math.trunc(Number(item.qty !== undefined ? item.qty : item.quantity));
+      if (!qty || qty <= 0) { results.push({ name: item.name || String(item.product_id), error: 'quantidade inválida' }); continue; }
+      let costCents = Number(item.unit_cost_cents) > 0 ? Math.round(Number(item.unit_cost_cents)) : null;
+      let product = null;
+      if (item.product_id) product = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(item.product_id));
+      if (!product && item.name) product = db.prepare('SELECT * FROM products WHERE name = ? COLLATE NOCASE').get(String(item.name).trim());
+      let created = false;
+      if (!product) {
+        if (!item.create_if_missing || !item.name) { results.push({ name: item.name, error: 'produto não encontrado no cadastro' }); continue; }
+        if (!costCents) { results.push({ name: item.name, error: 'custo unitário obrigatório para criar produto' }); continue; }
+        const pricing = simulatePricing(costCents, rule);
+        const info = db.prepare(`INSERT INTO products (name, category, default_supplier_id, internal_code, unit, last_purchase_cost_cents, min_price_cents, ideal_price_cents, promo_price_cents, low_stock_threshold)
+                                 VALUES (?,?,?,?,?,?,?,?,?,?)`)
+          .run(String(item.name).trim().replace(/\s+/g, ' '), item.category || 'Geral', null, item.internal_code || '', 'unidade',
+               costCents, pricing.min_price_cents, pricing.recommended_price_cents, Math.round(pricing.min_price_cents * 1.1), 2);
+        product = db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid);
+        created = true;
+      }
+      if (!costCents) {
+        const latest = db.prepare('SELECT unit_cost_cents FROM stock_lots WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(product.id);
+        costCents = latest ? latest.unit_cost_cents : (product.last_purchase_cost_cents || 0);
+      }
+      if (!costCents) { results.push({ name: product.name, error: 'custo unitário indisponível para o lote' }); continue; }
+      const bal = db.prepare('SELECT COALESCE(SUM(quantity),0) as b FROM stock_movements WHERE product_id = ?').get(product.id).b;
+      const lotInfo = db.prepare('INSERT INTO stock_lots (product_id, supplier_id, quantity_purchased, unit_cost_cents, created_by) VALUES (?,?,?,?,?)')
+        .run(product.id, product.default_supplier_id || null, qty, costCents, req.user.id);
+      db.prepare('INSERT INTO stock_movements (product_id, lot_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?,?)')
+        .run(product.id, lotInfo.lastInsertRowid, 'entrada_compra', qty, bal + qty, reason, req.user.id);
+      if (created) db.prepare('UPDATE products SET last_purchase_cost_cents = ? WHERE id = ?').run(costCents, product.id);
+      results.push({ product_id: product.id, name: product.name, created, qty, unit_cost_cents: costCents,
+                     lot_id: lotInfo.lastInsertRowid, balance_before: bal, balance_after: bal + qty });
+    }
+    const ok = results.filter(r => r.product_id);
+    if (ok.length) logAudit({ actorUserId: req.user.id, actorLabel: req.user.name, action: 'stock.in', entityType: 'stock',
+      details: { count: ok.length, units: ok.reduce((a, r) => a + r.qty, 0), created: ok.filter(r => r.created).length, reason } });
+    sendJson(res, 200, { ok: true, applied: ok.length, results });
+  } catch (e) { sendJson(res, 500, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
 // ADMIN: Bulk add products with cost and quantity
 
 // ADMIN: Fix a closed kit's item counts (correct sold vs returned)
