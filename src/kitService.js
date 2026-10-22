@@ -589,9 +589,84 @@ function rankingForReseller(resellerId) {
   return { position: idx + 1, total_resellers: full.length, my_total_cents: full[idx].total_cents };
 }
 
+/** Estorno de venda: as unidades voltam para o saldo do kit da revendedora.
+ * Funciona para venda ainda "informada" (não conferida) e para venda já "confirmada"
+ * pela CEO, desde que o kit não tenha sido fechado nem tenha pagamento registrado.
+ * O registro da venda nunca é apagado: ele passa a "rejeitada" com o motivo do estorno,
+ * para que o histórico continue auditável e ranking/financeiro parem de contá-la. */
+function reverseSale({ kitSaleId, actorUser, note, asCeo = false }) {
+  const sale = db.prepare('SELECT * FROM kit_sales WHERE id = ?').get(kitSaleId);
+  if (!sale) throw new Error('Venda não encontrada.');
+
+  const item = db.prepare(`
+    SELECT ki.*, k.reseller_id, k.status AS kit_status, p.name AS product_name
+    FROM kit_items ki JOIN kits k ON k.id = ki.kit_id JOIN products p ON p.id = ki.product_id
+    WHERE ki.id = ?
+  `).get(sale.kit_item_id);
+  if (!item) throw new Error('Item do kit não encontrado.');
+
+  // A posse vem antes de qualquer outra resposta: quem não é dona nem fica sabendo o estado da venda.
+  if (!asCeo) {
+    if (!actorUser.reseller_id || item.reseller_id !== actorUser.reseller_id) throw new Error('Esta venda não pertence ao seu kit.');
+  }
+  if (!['informada', 'confirmada'].includes(sale.status)) {
+    throw new Error(`Esta venda está como "${sale.status}" e não pode ser estornada.`);
+  }
+  if (!['entregue', 'aguardando_fechamento'].includes(item.kit_status)) {
+    throw new Error(`O kit está "${item.kit_status}" — peça o estorno à CEO.`);
+  }
+  if (db.prepare('SELECT id FROM kit_closures WHERE kit_id = ?').get(item.kit_id)) {
+    throw new Error('Este kit já foi fechado — peça o estorno à CEO.');
+  }
+  const paidCount =
+    db.prepare('SELECT COUNT(*) AS n FROM commission_payments WHERE kit_id = ?').get(item.kit_id).n +
+    db.prepare('SELECT COUNT(*) AS n FROM receivable_payments WHERE kit_id = ?').get(item.kit_id).n;
+  if (paidCount > 0) throw new Error('Este kit já tem pagamento registrado — peça o estorno à CEO.');
+
+  const accounted = item.quantity_confirmed_sold + item.quantity_pending_closure;
+  if (sale.quantity > accounted) {
+    throw new Error(`Conferência divergente: só restam ${accounted} unidade(s) lançadas neste item. Fale com a CEO.`);
+  }
+
+  const reason = (note && String(note).trim()) ? `Estornado: ${String(note).trim()}`.slice(0, 200) : 'Estornado pela revendedora';
+  const counter = sale.status === 'confirmada' ? 'quantity_confirmed_sold' : 'quantity_pending_closure';
+
+  db.exec('BEGIN');
+  try {
+    db.prepare(`UPDATE kit_items SET ${counter} = ${counter} - ?, quantity_available = quantity_available + ? WHERE id = ?`)
+      .run(sale.quantity, sale.quantity, sale.kit_item_id);
+    db.prepare(`UPDATE kit_sales SET status = 'rejeitada', decided_by = ?, decided_at = datetime('now'), note = ? WHERE id = ?`)
+      .run(actorUser.id, reason, kitSaleId);
+    // Os números do item mudaram: a conferência física salva deixa de ser confiável.
+    db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_item_id = ?').run(sale.kit_item_id);
+
+    logAudit({
+      actorUserId: actorUser.id, actorLabel: asCeo ? 'CEO' : 'Revendedora', action: 'kit_sale.reversed',
+      entityType: 'kit_sale', entityId: kitSaleId,
+      details: { kit_id: item.kit_id, kit_item_id: sale.kit_item_id, product: item.product_name, quantity: sale.quantity, desfeita_de: sale.status, note: reason },
+    });
+    const resellerName = (db.prepare('SELECT name FROM resellers WHERE id = ?').get(item.reseller_id) || {}).name || 'Revendedora';
+    notificationService.notify({
+      recipientRole: 'ceo', type: 'kit_sale.reversed', entityType: 'kit_sale', entityId: kitSaleId,
+      message: asCeo
+        ? `Estorno de ${sale.quantity}x ${item.product_name} no kit #${item.kit_id} (feito pela CEO). Unidades de volta no kit.`
+        : `${resellerName} estornou ${sale.quantity}x ${item.product_name} no kit #${item.kit_id}. As unidades voltaram para o kit dela.`,
+    });
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+
+  return {
+    sale: db.prepare('SELECT * FROM kit_sales WHERE id = ?').get(kitSaleId),
+    item: db.prepare('SELECT * FROM kit_items WHERE id = ?').get(sale.kit_item_id),
+  };
+}
+
 module.exports = {
   getKit, listKits, suggestKit, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
-  informSale, decideSale, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
+  informSale, decideSale, reverseSale, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
   getReconciliationDraft, saveReconciliationItem,
   rankingFull, rankingForReseller,
 };

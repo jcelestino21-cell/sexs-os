@@ -957,6 +957,15 @@ router.post('/api/kit-sales/:id/decide', requireAuth(async (req, res, params) =>
   catch (e) { sendJson(res, 400, { error: e.message }); }
 }, { roles: ['ceo'] }));
 
+// CEO também pode desfazer uma venda (inclusive uma já confirmada) devolvendo as unidades ao kit.
+router.post('/api/kit-sales/:id/reverse', requireAuth(async (req, res, params) => {
+  const body = await readJsonBody(req);
+  try {
+    const out = kitService.reverseSale({ kitSaleId: Number(params.id), actorUser: req.user, note: body.note, asCeo: true });
+    sendJson(res, 200, out);
+  } catch (e) { sendJson(res, 400, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
 // ---- Portal da revendedora ----
 function requireReseller(handler) {
   return requireAuth((req, res, params) => {
@@ -1089,11 +1098,26 @@ router.get('/api/portal/products', requireReseller((req, res) => {
 }));
 
 // ---- Portal: Minhas Vendas (histórico da revendedora) ----
+// Estorno pela revendedora: as unidades voltam para o kit dela (venda sai do ranking/financeiro).
+router.post('/api/portal/sales/:id/reverse', requireReseller(async (req, res, params) => {
+  const body = await readJsonBody(req);
+  try {
+    const out = kitService.reverseSale({ kitSaleId: Number(params.id), actorUser: req.user, note: body.note });
+    sendJson(res, 200, out);
+  } catch (e) { sendJson(res, 400, { error: e.message }); }
+}));
+
 router.get('/api/portal/sales', requireReseller((req, res) => {
   const resellerId = req.user.reseller_id;
   const sales = db.prepare(`
-    SELECT ks.id, ks.quantity, ks.unit_price_cents, ks.status, ks.created_at,
-           p.name as product_name, ki.kit_id
+    SELECT ks.id, ks.quantity, ks.unit_price_cents, ks.status, ks.created_at, ks.note, ks.kit_item_id,
+           p.name as product_name, ki.kit_id, k.status as kit_status,
+           CASE WHEN ks.status IN ('informada','confirmada')
+                     AND k.status IN ('entregue','aguardando_fechamento')
+                     AND NOT EXISTS (SELECT 1 FROM kit_closures kc WHERE kc.kit_id = k.id)
+                     AND NOT EXISTS (SELECT 1 FROM commission_payments cp WHERE cp.kit_id = k.id)
+                     AND NOT EXISTS (SELECT 1 FROM receivable_payments rp WHERE rp.kit_id = k.id)
+                THEN 1 ELSE 0 END as reversible
     FROM kit_sales ks
     JOIN kit_items ki ON ki.id = ks.kit_item_id
     JOIN products p ON p.id = ki.product_id
@@ -1116,7 +1140,7 @@ router.get('/api/portal/sales', requireReseller((req, res) => {
       total_confirmed_cents: totalConfirmed,
       commission_pct: commissionPct,
       commission_earned_cents: commissionEarned,
-      items_sold: sales.reduce((sum, s) => sum + s.quantity, 0),
+      items_sold: sales.filter(s => s.status === 'confirmada' || s.status === 'informada').reduce((sum, s) => sum + s.quantity, 0),
     }
   });
 }));

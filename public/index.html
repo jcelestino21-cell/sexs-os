@@ -2378,6 +2378,20 @@ async function informSale(itemId) {
   } catch(e) { toast(e.message); }
 }
 
+async function reversePortalSale(saleId) {
+  var sale = (S.portalSales || {})[saleId];
+  if (!sale) return toast('Recarregue a lista de vendas e tente de novo.');
+  if (!confirm('Estornar a venda de ' + sale.quantity + 'x ' + sale.product_name + '?\n\nAs unidades voltam para o seu kit e o valor sai do seu total.')) return;
+  var motivo = '';
+  try { motivo = prompt('Motivo do estorno (opcional):', 'Cliente desistiu da compra') || ''; } catch(e) { motivo = ''; }
+  try {
+    await api('/api/portal/sales/' + saleId + '/reverse', {method:'POST', token:S.token, body:JSON.stringify({note: motivo || null})});
+    toast('Venda estornada — as unidades voltaram para o seu kit. ↩️', 'ok');
+    renderPortalSales();
+    renderPortalKits();
+  } catch(e) { toast(e.message); }
+}
+
 // ===== PORTAL: MINHAS VENDAS =====
 async function renderPortalSales() {
   var v = $('#portal-sales'); if(!v) return;
@@ -2387,6 +2401,7 @@ async function renderPortalSales() {
     var salesData = await api('/api/portal/sales', {token: S.token});
     var s = salesData.summary || {};
     var sales = salesData.sales || [];
+    S.portalSales = {}; sales.forEach(function(x){ S.portalSales[x.id] = x; });
     
     // Buscar kits da revendedora
     var kitsData = await api('/api/portal/kits', {token: S.token});
@@ -2500,19 +2515,25 @@ async function renderPortalSales() {
       if (activeSales.length > 0) {
         tableHtml = '<div class="st">Detalhes das Vendas (Kit Ativo)</div>' +
           '<div style="overflow-x:auto"><table style="width:100%;font-size:13px">' +
-          '<tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Preço</th><th style="text-align:right">Total</th><th>Status</th></tr>';
+          '<tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:right">Preço</th><th style="text-align:right">Total</th><th>Status</th><th style="text-align:right">Ações</th></tr>';
         
         activeSales.forEach(function(sale) {
-          var statusColors = {informada:'#ffa500', confirmada:'#4ade80', rejeitada:'#3b82f6'};
-          var statusLabels = {informada:'⏳ Informada', confirmada:'✅ Confirmada', rejeitada:'📦 Devolução'};
+          var estornado = (sale.note || '').indexOf('Estornado') === 0;
+          var statusColors = {informada:'#ffa500', confirmada:'#4ade80', rejeitada: estornado ? '#a78bfa' : '#3b82f6'};
+          var statusLabels = {informada:'⏳ Informada', confirmada:'✅ Confirmada', rejeitada: estornado ? '↩️ Estornada' : '📦 Devolução'};
           var total = sale.quantity * (sale.unit_price_cents||0);
+          var action = sale.reversible
+            ? '<button class="btn-s" style="background:transparent;border:1px solid var(--bd);color:var(--t2);padding:6px 10px;border-radius:8px;font-size:11px;cursor:pointer" onclick="reversePortalSale(' + sale.id + ')">↩️ Estornar</button>'
+            : '<span style="color:var(--t3);font-size:11px">' + (sale.status === 'rejeitada' ? '—' : 'só a CEO') + '</span>';
           tableHtml += '<tr><td>' + esc(sale.product_name) + '</td>' +
             '<td style="text-align:center;font-weight:600">' + sale.quantity + '</td>' +
             '<td style="text-align:right">' + f(sale.unit_price_cents) + '</td>' +
             '<td style="text-align:right;font-weight:600">' + f(total) + '</td>' +
-            '<td><span style="color:' + (statusColors[sale.status]||'var(--t2)') + '">' + (statusLabels[sale.status]||sale.status) + '</span></td></tr>';
+            '<td><span style="color:' + (statusColors[sale.status]||'var(--t2)') + '">' + (statusLabels[sale.status]||sale.status) + '</span>' +
+              (sale.note ? '<div style="font-size:10px;color:var(--t3)">' + esc(sale.note) + '</div>' : '') + '</td>' +
+            '<td style="text-align:right">' + action + '</td></tr>';
         });
-        tableHtml += '</table></div>';
+        tableHtml += '</table></div><div style="font-size:11px;color:var(--t3);margin-top:8px">Estornar uma venda devolve as unidades para o seu kit e tira o valor do seu total. Depois do fechamento do kit, só a CEO consegue estornar.</div>';
       }
     }
     
