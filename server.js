@@ -3493,6 +3493,14 @@ router.post('/api/kits/:id/add-item', requireAuth(async (req, res, params) => {
     }
     
     if (kit.status !== 'sugerido') {
+      // Kit já entregue: o acréscimo baixa o estoque físico da empresa e credita o saldo
+      // consignado do kit (com termo de entrega reemitido), em vez de só somar na lista.
+      if (['entregue', 'aguardando_fechamento'].includes(kit.status)) {
+        try {
+          const out = kitService.addDeliveredItem({ kitId, productId, quantity, actorUser: req.user, note: body.note });
+          return sendJson(res, 200, { ok: true, message: `${out.added}x ${out.product_name} acrescentados ao kit #${kitId}`, kit_item_id: out.item.id, item: out.item, stock_balance_after: out.stock_balance_after });
+        } catch (e) { return sendJson(res, 400, { error: e.message }); }
+      }
       return sendJson(res, 400, { error: 'Só é possível adicionar itens em kits sugeridos' });
     }
     

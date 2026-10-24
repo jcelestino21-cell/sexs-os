@@ -589,6 +589,74 @@ function rankingForReseller(resellerId) {
   return { position: idx + 1, total_resellers: full.length, my_total_cents: full[idx].total_cents };
 }
 
+/** Acréscimo a um kit que já foi entregue (ou está aguardando fechamento): a unidade
+ * sai do estoque físico da empresa e entra no saldo consignado do kit. Se o produto já
+ * estiver no kit, a quantidade é somada ao item existente (mesmo preço de venda), para
+ * não duplicar linha nem criar preço divergente. Regenera o termo de entrega para a
+ * revendedora assinar com o item a mais. */
+function addDeliveredItem({ kitId, productId, quantity, actorUser, note }) {
+  const kit = getKit(kitId);
+  if (!kit) throw new Error('Kit não encontrado.');
+  if (!['entregue', 'aguardando_fechamento'].includes(kit.status)) {
+    throw new Error(`Acrescentar unidade avulsa só faz sentido em kit já entregue. Este está "${kit.status}".`);
+  }
+  if (db.prepare('SELECT id FROM kit_closures WHERE kit_id = ?').get(kitId)) throw new Error('Este kit já foi fechado.');
+
+  const qty = Math.trunc(Number(quantity));
+  if (!qty || qty <= 0) throw new Error('Quantidade inválida.');
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(productId));
+  if (!product) throw new Error('Produto não encontrado.');
+  if (!product.active) throw new Error(`"${product.name}" está inativo no catálogo.`);
+
+  const free = companyAvailableBalance(product.id);
+  if (free < qty) throw new Error(`Estoque insuficiente de "${product.name}": há ${free} unidade(s) em mãos e o acréscimo pede ${qty}.`);
+
+  const existing = db.prepare('SELECT * FROM kit_items WHERE kit_id = ? AND product_id = ?').get(kitId, product.id);
+  const priceCents = existing ? existing.unit_sale_price_cents : (product.ideal_price_cents || product.min_price_cents || 0);
+  if (!priceCents) throw new Error(`"${product.name}" ainda não tem preço de venda definido — defina na aba de preços antes.`);
+  const reason = `Acréscimo à entrega do kit #${kitId}${note ? ` — ${String(note).trim().slice(0, 120)}` : ''}`;
+
+  db.exec('BEGIN');
+  try {
+    let kitItemId;
+    if (existing) {
+      db.prepare(`UPDATE kit_items SET quantity_suggested = quantity_suggested + ?, quantity_delivered = quantity_delivered + ?, quantity_available = quantity_available + ? WHERE id = ?`)
+        .run(qty, qty, qty, existing.id);
+      kitItemId = existing.id;
+    } else {
+      const info = db.prepare(`INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents, quantity_delivered, quantity_available) VALUES (?,?,?,?,?,?)`)
+        .run(kitId, product.id, qty, priceCents, qty, qty);
+      kitItemId = info.lastInsertRowid;
+    }
+    db.prepare(`INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?, 'entrega_kit', ?, ?, ?, ?)`)
+      .run(product.id, -qty, free - qty, reason, actorUser.id);
+    // O item novo/alterado muda a contagem: a conferência salva deste item deixa de valer.
+    db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_item_id = ?').run(kitItemId);
+
+    logAudit({
+      actorUserId: actorUser.id, actorLabel: actorUser.role === 'ceo' ? 'CEO' : (actorUser.name || 'Usuário'),
+      action: 'kit.item_added_after_delivery', entityType: 'kit', entityId: kitId,
+      details: { kit_item_id: kitItemId, product_id: product.id, product: product.name, quantity: qty, unit_sale_price_cents: priceCents, stock_after: free - qty, note: note || null, merged_into_existing_item: !!existing },
+    });
+    notificationService.notify({
+      recipientRole: 'ceo', type: 'kit.item_added', entityType: 'kit', entityId: kitId,
+      message: `Acréscimo no kit #${kitId} (${kit.reseller.name}): ${qty}x ${product.name}. Estoque da empresa foi baixado em ${qty} un.`,
+    });
+
+    const refreshed = getKit(kitId);
+    const productNames = {};
+    for (const it of refreshed.items) productNames[it.product_id] = it.product_name;
+    documentService.generateDeliveryDocument(refreshed, refreshed.reseller, refreshed.items, productNames, actorUser.id);
+
+    db.exec('COMMIT');
+    const item = db.prepare('SELECT * FROM kit_items WHERE id = ?').get(kitItemId);
+    return { kit: refreshed, item, added: qty, product_name: product.name, unit_sale_price_cents: priceCents, stock_balance_after: free - qty };
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 /** Estorno de venda: as unidades voltam para o saldo do kit da revendedora.
  * Funciona para venda ainda "informada" (não conferida) e para venda já "confirmada"
  * pela CEO, desde que o kit não tenha sido fechado nem tenha pagamento registrado.
@@ -666,7 +734,7 @@ function reverseSale({ kitSaleId, actorUser, note, asCeo = false }) {
 
 module.exports = {
   getKit, listKits, suggestKit, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
-  informSale, decideSale, reverseSale, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
+  informSale, decideSale, reverseSale, addDeliveredItem, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
   getReconciliationDraft, saveReconciliationItem,
   rankingFull, rankingForReseller,
 };
