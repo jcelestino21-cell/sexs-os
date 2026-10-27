@@ -3228,6 +3228,31 @@ router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res, params) => {
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: acerto retroativo — realoca unidade de um kit aberto para o kit JÁ ENCERRADO de
+// outra revendedora (o item foi entregue no kit errado e o acerto com a dona da peça já
+// aconteceu). Lança como venda confirmada, soma o valor ao fechamento existente e não
+// mexe no estoque físico, porque a peça não voltou para o depósito.
+router.post('/api/admin/kits/:id/reattribute-item', requireAuth(async (req, res, params) => {
+  try {
+    const body = await readJsonBody(req);
+    if (!body.from_kit_id || !body.product_id || !body.quantity) {
+      return sendJson(res, 400, { error: 'from_kit_id, product_id e quantity são obrigatórios' });
+    }
+    const out = kitService.reattributeItemToClosedKit({
+      fromKitId: body.from_kit_id,
+      toKitId: Number(params.id),
+      productId: body.product_id,
+      quantity: body.quantity,
+      unitPriceCents: body.unit_price_cents,
+      note: body.note,
+      actorUser: req.user,
+    });
+    return sendJson(res, 200, { ok: true, ...out });
+  } catch (e) {
+    return sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 // ===== PAGAMENTOS E COMISSÕES =====
 
 // ADMIN: Confirmar pagamento de kit e registrar comissão paga

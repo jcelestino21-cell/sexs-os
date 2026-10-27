@@ -673,6 +673,176 @@ function addDeliveredItem({ kitId, productId, quantity, actorUser, note }) {
   }
 }
 
+const fmtCents = (c) => 'R$ ' + ((c || 0) / 100).toFixed(2);
+
+/** Acerto retroativo de atribuição: a unidade saiu do depósito no kit errado e o item
+ * já foi acertado com a outra revendedora, cujo kit está ENCERRADO.
+ *
+ * O fluxo normal não cobre isso: item avulso só entra em kit 'entregue'/
+ * 'aguardando_fechamento' (addDeliveredItem) e o fechamento só é calculado uma vez
+ * (approveClosure). Esta função faz a realocação numa transação só:
+ *  - tira as unidades do kit aberto de origem (entregue e saldo em mãos) SEM devolver
+ *    ao estoque físico, porque a peça não muda de lugar;
+ *  - cria a linha no kit encerrado de destino já como vendida (kit_items + kit_sales +
+ *    kit_item_reconciliations), mantendo a equação
+ *    entregue = vendido + devolvido + retido + danificado + perdido;
+ *  - atualiza o fechamento do kit de destino DE FORMA ADITIVA (só soma o novo vendido,
+ *    a comissão sobre ele e o custo médio da unidade nova). Não refaz os totais do zero
+ *    para não reescrever custo/comissão de um fechamento já aprovado se a regra mudou
+ *    desde então.
+ *  - grava um 'ajuste' de quantidade 0 em stock_movements como marcador auditável
+ *    (saldo inalterado), registra audit_log, reemite o documento de fechamento e
+ *    notifica a CEO.
+ */
+function reattributeItemToClosedKit({ fromKitId, toKitId, productId, quantity, unitPriceCents, note, actorUser }) {
+  const qty = Math.trunc(Number(quantity));
+  if (!qty || qty <= 0) throw new Error('Quantidade inválida.');
+  const label = (note && String(note).trim().slice(0, 160)) || 'realocação de item conferida pela CEO';
+
+  const fromKit = getKit(Number(fromKitId));
+  if (!fromKit) throw new Error('Kit de origem não encontrado.');
+  if (!['entregue', 'aguardando_fechamento'].includes(fromKit.status)) {
+    throw new Error(`O kit de origem precisa estar entregue (aberto). O kit #${fromKit.id} está "${fromKit.status}".`);
+  }
+  const toKit = getKit(Number(toKitId));
+  if (!toKit) throw new Error('Kit de destino não encontrado.');
+  if (toKit.status !== 'encerrado') throw new Error(`Lançamento retroativo só faz sentido em kit encerrado. O kit #${toKit.id} está "${toKit.status}".`);
+  if (fromKit.reseller_id === toKit.reseller_id) throw new Error('Kit de origem e de destino são da mesma revendedora.');
+  const closureBefore = db.prepare('SELECT * FROM kit_closures WHERE kit_id = ?').get(toKit.id);
+  if (!closureBefore) throw new Error(`O kit #${toKit.id} não tem fechamento gravado — use o acréscimo normal do kit.`);
+
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(productId));
+  if (!product) throw new Error('Produto não encontrado.');
+
+  const source = db.prepare('SELECT * FROM kit_items WHERE kit_id = ? AND product_id = ?').get(fromKit.id, product.id);
+  if (!source) throw new Error(`"${product.name}" não está no kit #${fromKit.id} (${fromKit.reseller.name}).`);
+  if (source.quantity_available < qty) {
+    throw new Error(`Só há ${source.quantity_available} unidade(s) em mãos no kit #${fromKit.id} (entregues ${source.quantity_delivered}, vendidas ${source.quantity_confirmed_sold}, informadas ${source.quantity_pending_closure}, devolvidas ${source.quantity_returned}). Estorne a venda antes de realocar.`);
+  }
+  const price = unitPriceCents === undefined || unitPriceCents === null || unitPriceCents === ''
+    ? source.unit_sale_price_cents
+    : Math.trunc(Number(unitPriceCents));
+  if (!price || price <= 0) throw new Error('Preço unitário inválido — informe unit_price_cents ou defina o preço do produto.');
+
+  const rule = getActivePricingRule();
+  const commissionPct = toKit.reseller.commission_pct != null ? toKit.reseller.commission_pct : rule.commission_pct;
+  const addedSoldCents = qty * price;
+  const newSoldCents = closureBefore.total_sold_confirmed_cents + addedSoldCents;
+  // Se a taxa que originou o fechamento é a mesma de hoje, a comissão é recalculada sobre
+  // o total novo (é o que o portal da revendedora refaz por conta própria; somar o
+  // incremento arredondado à parte daria 1 centavo de diferença). Se a taxa mudou desde
+  // o fechamento, o histórico é preservado e só o incremento entra com a taxa atual.
+  const impliedPct = closureBefore.total_sold_confirmed_cents
+    ? closureBefore.total_commission_cents / closureBefore.total_sold_confirmed_cents : null;
+  const sameRate = impliedPct !== null && Math.abs(impliedPct - commissionPct) <= 0.0001;
+  const newCommissionCents = sameRate
+    ? Math.round(newSoldCents * commissionPct)
+    : closureBefore.total_commission_cents + Math.round(addedSoldCents * commissionPct);
+  const addedCommissionCents = newCommissionCents - closureBefore.total_commission_cents;
+  const addedCogsCents = Math.round(qty * weightedAverageCostCents(product.id));
+  const closureAfter = {
+    total_sold_confirmed_cents: newSoldCents,
+    total_commission_cents: newCommissionCents,
+    total_due_to_sexs_cents: newSoldCents - newCommissionCents,
+    cost_of_goods_sold_cents: closureBefore.cost_of_goods_sold_cents + addedCogsCents,
+    write_off_cost_cents: closureBefore.write_off_cost_cents,
+  };
+  closureAfter.gross_profit_cents = closureAfter.total_sold_confirmed_cents - closureAfter.cost_of_goods_sold_cents
+    - closureAfter.total_commission_cents - closureAfter.write_off_cost_cents;
+
+  const balanceNow = companyAvailableBalance(product.id);
+  const reason = `Reatribuição de "${product.name}": kit #${fromKit.id} (${fromKit.reseller.name}) -> kit #${toKit.id} (${toKit.reseller.name}) — ${label}. Peça não passou pelo depósito, saldo não muda.`;
+
+  db.exec('BEGIN');
+  try {
+    // 1. Origem: sai da contagem do kit aberto. Sem movimento de estoque — a unidade
+    // continua fora do depósito, só que com a outra revendedora.
+    const deliveredAfter = source.quantity_delivered - qty;
+    if (deliveredAfter === 0 && source.quantity_confirmed_sold === 0 && source.quantity_pending_closure === 0 && source.quantity_returned === 0) {
+      db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_item_id = ?').run(source.id);
+      db.prepare('DELETE FROM kit_items WHERE id = ?').run(source.id);
+    } else {
+      db.prepare('UPDATE kit_items SET quantity_delivered = quantity_delivered - ?, quantity_available = quantity_available - ?, quantity_suggested = MAX(quantity_suggested - ?, 0) WHERE id = ?')
+        .run(qty, qty, qty, source.id);
+      db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_item_id = ?').run(source.id);
+    }
+
+    // 2. Destino: linha criada já vendida e conferida, com a venda confirmada no
+    // histórico (o registro da venda é o que alimenta o fechamento e o ranking).
+    const newItem = db.prepare(
+      `INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents, quantity_delivered, quantity_available, quantity_pending_closure, quantity_confirmed_sold, quantity_returned)
+       VALUES (?,?,?,?,?,0,0,?,0)`
+    ).run(toKit.id, product.id, qty, price, qty, qty);
+    const kitItemId = newItem.lastInsertRowid;
+    const saleNote = `Venda realocada do kit #${fromKit.id} (${fromKit.reseller.name}) para o kit #${toKit.id} — item já acertado com a revendedora. ${label}`;
+    const sale = db.prepare(
+      `INSERT INTO kit_sales (kit_item_id, quantity, unit_price_cents, status, created_by, decided_by, decided_at, note)
+       VALUES (?,?,?,'confirmada',?,?,datetime('now'),?)`
+    ).run(kitItemId, qty, price, actorUser.id, actorUser.id, saleNote.slice(0, 300));
+    db.prepare(
+      `INSERT INTO kit_item_reconciliations (kit_id, kit_item_id, quantity_sold_confirmed, quantity_returned, quantity_kept_authorized, quantity_damaged, quantity_lost, quantity_divergence, note, finalized, created_by)
+       VALUES (?,?,?,0,0,0,0,0,?,1,?)`
+    ).run(toKit.id, kitItemId, qty, `Conferência retroativa: ${qty} vendida(s) realocada(s) do kit #${fromKit.id}. ${label}`.slice(0, 300), actorUser.id);
+
+    // 3. Fechamento: soma o incrementos (ver comentário do topo — não refaz do zero).
+    db.prepare(
+      `UPDATE kit_closures SET total_sold_confirmed_cents = ?, total_commission_cents = ?, total_due_to_sexs_cents = ?,
+         cost_of_goods_sold_cents = ?, gross_profit_cents = ?, items_returned_to_stock = ?, approved_by = COALESCE(?, approved_by)
+       WHERE kit_id = ?`
+    ).run(closureAfter.total_sold_confirmed_cents, closureAfter.total_commission_cents, closureAfter.total_due_to_sexs_cents,
+      closureAfter.cost_of_goods_sold_cents, closureAfter.gross_profit_cents,
+      db.prepare('SELECT COALESCE(SUM(quantity_returned),0) as n FROM kit_items WHERE kit_id = ?').get(toKit.id).n,
+      actorUser.id, toKit.id);
+
+    // 4. Marcador no histórico de estoque: quantidade 0, saldo idêntico, motivo claro.
+    db.prepare(`INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?, 'ajuste', 0, ?, ?, ?)`)
+      .run(product.id, balanceNow, reason.slice(0, 300), actorUser.id);
+
+    // 5. Papelada do fechamento refeita com o número novo + trilha.
+    const refreshed = getKit(toKit.id);
+    const reconciliations = db.prepare('SELECT * FROM kit_item_reconciliations WHERE kit_id = ?').all(toKit.id);
+    documentService.createDocument({
+      resellerId: refreshed.reseller_id, type: 'fechamento', referenceId: toKit.id, userId: actorUser.id,
+      content: renderClosureDocument(refreshed, reconciliations, {
+        totalSoldCents: closureAfter.total_sold_confirmed_cents,
+        totalCogsCents: closureAfter.cost_of_goods_sold_cents,
+        totalCommissionCents: closureAfter.total_commission_cents,
+        totalDueCents: closureAfter.total_due_to_sexs_cents,
+        grossProfitCents: closureAfter.gross_profit_cents,
+      }) + `\n\nOBSERVAÇÃO — acerto retroativo: ${qty}x ${product.name} (${fmtCents(addedSoldCents)}) saiu do kit #${fromKit.id} de ${fromKit.reseller.name} e foi lançado como venda confirmada neste fechamento já encerrado, com custo médio de ${fmtCents(addedCogsCents)}. Estoque físico não foi alterado.`,
+    });
+
+    logAudit({
+      actorUserId: actorUser.id, actorLabel: actorUser.role === 'ceo' ? 'CEO' : (actorUser.name || 'Usuário'),
+      action: 'kit.item_reattributed_to_closed_kit', entityType: 'kit', entityId: toKit.id,
+      details: {
+        from_kit_id: fromKit.id, to_kit_id: toKit.id, product_id: product.id, product: product.name, quantity: qty,
+        unit_sale_price_cents: price, kit_item_id: kitItemId, kit_sale_id: sale.lastInsertRowid,
+        added_sold_cents: addedSoldCents, added_commission_cents: addedCommissionCents, added_cogs_cents: addedCogsCents,
+        commission_pct: commissionPct, closure_before: closureBefore, closure_after: closureAfter, note: label,
+      },
+    });
+    notificationService.notify({
+      recipientRole: 'ceo', type: 'kit.item_reattributed', entityType: 'kit', entityId: toKit.id,
+      message: `Acerto retroativo no kit #${toKit.id} (${toKit.reseller.name}): ${qty}x ${product.name} lançado como venda (${fmtCents(addedSoldCents)}). Fechamento passou para ${fmtCents(closureAfter.total_sold_confirmed_cents)} vendidos e ${fmtCents(closureAfter.total_due_to_sexs_cents)} a receber. Unidade retirada do kit #${fromKit.id} (${fromKit.reseller.name}); estoque físico inalterado.`,
+    });
+
+    db.exec('COMMIT');
+    return {
+      message: `${qty}x ${product.name} retirado(s) do kit #${fromKit.id} e lançado(s) como venda confirmada no kit #${toKit.id} (fechamento recalculado; estoque físico inalterado).`,
+      product_name: product.name, quantity: qty, unit_sale_price_cents: price,
+      kit_item_id: kitItemId,
+      from_kit: { id: fromKit.id, reseller: fromKit.reseller.name, item_id: source.id, delivered_after: Math.max(deliveredAfter, 0), available_after: Math.max(source.quantity_available - qty, 0), item_removed: deliveredAfter === 0 },
+      to_kit: { id: toKit.id, reseller: toKit.reseller.name, items: refreshed.items.length, delivered: refreshed.items.reduce((s, i) => s + i.quantity_delivered, 0) },
+      closure_before: closureBefore, closure_after: db.prepare('SELECT * FROM kit_closures WHERE kit_id = ?').get(toKit.id),
+      commission_pct_used: commissionPct, stock_balance: balanceNow,
+    };
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 /** Estorno de venda: as unidades voltam para o saldo do kit da revendedora.
  * Funciona para venda ainda "informada" (não conferida) e para venda já "confirmada"
  * pela CEO, desde que o kit não tenha sido fechado nem tenha pagamento registrado.
@@ -750,7 +920,7 @@ function reverseSale({ kitSaleId, actorUser, note, asCeo = false }) {
 
 module.exports = {
   getKit, listKits, suggestKit, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
-  informSale, decideSale, reverseSale, addDeliveredItem, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
+  informSale, decideSale, reverseSale, addDeliveredItem, reattributeItemToClosedKit, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
   getReconciliationDraft, saveReconciliationItem,
   rankingFull, rankingForReseller,
 };
