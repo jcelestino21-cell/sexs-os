@@ -811,7 +811,9 @@ router.get('/api/kits/products-summary', requireAuth((req, res) => {
 router.get('/api/kits/:id', requireCapability('kits:read', (req, res, params) => {
   const kit = kitService.getKit(Number(params.id));
   if (!kit) return sendJson(res, 404, { error: 'Kit não encontrado.' });
-  sendJson(res, 200, { kit });
+  // closure so e exposta nesta rota interna da CEO (margem/CMV nao vao para o portal da revendedora)
+  const closure = db.prepare('SELECT * FROM kit_closures WHERE kit_id = ?').get(kit.id) || null;
+  sendJson(res, 200, { kit: { ...kit, closure } });
 }));
 
 router.post('/api/kits/suggest', requireCapability('kits:manage', async (req, res) => {

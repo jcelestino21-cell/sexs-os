@@ -25,7 +25,20 @@ function getKit(id) {
 }
 
 function listKits({ resellerId, status } = {}) {
-  let sql = 'SELECT k.*, r.name as reseller_name FROM kits k JOIN resellers r ON r.id = k.reseller_id WHERE 1=1';
+  // Totais por kit na mesma consulta: depois do fechamento o saldo do item (quantity_available)
+  // e zerado e a devolucao fica registrada em quantity_returned — sem estas colunas o extrato
+  // do kit encerrado mostra "nada para devolver" para quem olha o historico.
+  let sql = `SELECT k.*, r.name as reseller_name,
+      (SELECT COALESCE(SUM(ki.quantity_delivered),0) FROM kit_items ki WHERE ki.kit_id = k.id) as items_delivered,
+      (SELECT COALESCE(SUM(ki.quantity_confirmed_sold),0) FROM kit_items ki WHERE ki.kit_id = k.id) as items_sold,
+      (SELECT COALESCE(SUM(ki.quantity_available),0) FROM kit_items ki WHERE ki.kit_id = k.id) as items_available,
+      (SELECT COALESCE(SUM(ki.quantity_pending_closure),0) FROM kit_items ki WHERE ki.kit_id = k.id) as items_pending,
+      (SELECT COALESCE(SUM(ki.quantity_returned),0) FROM kit_items ki WHERE ki.kit_id = k.id) as items_returned,
+      (SELECT COALESCE(SUM(ki.quantity_kept_by_reseller + ki.quantity_damaged + ki.quantity_lost),0) FROM kit_items ki WHERE ki.kit_id = k.id) as items_write_off,
+      (SELECT COALESCE(SUM(ki.quantity_confirmed_sold * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as sold_value_cents,
+      (SELECT COALESCE(SUM(ki.quantity_returned * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as returned_value_cents,
+      (SELECT COALESCE(SUM(ki.quantity_available * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as available_value_cents
+    FROM kits k JOIN resellers r ON r.id = k.reseller_id WHERE 1=1`;
   const params = [];
   if (resellerId) { sql += ' AND k.reseller_id = ?'; params.push(resellerId); }
   if (status) { sql += ' AND k.status = ?'; params.push(status); }

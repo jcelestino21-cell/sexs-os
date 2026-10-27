@@ -1091,25 +1091,33 @@ async function toggleKitDetails(kitId) {
       var data = await api('/api/kits/' + kitId);
       var kit = data.kit || data;
       var items = kit.items || [];
-      var totalSold = 0, totalReturned = 0;
-      var html = '<div style="font-size:12px;color:var(--t2);margin-bottom:12px">' + items.length + ' tipos de produtos</div>';
-      html += '<table style="width:100%;font-size:12px"><tr><th style="text-align:left">Produto</th><th style="text-align:center">Entregue</th><th style="text-align:center;color:#4ade80">Vendido</th><th style="text-align:center;color:#ffa500">Devolver</th><th style="text-align:right">Preço</th><th style="text-align:right">Subtotal</th><th style="text-align:center">Ações</th></tr>';
+      var fechado = kit.status === 'encerrado';
+      var totalSold = 0, totalReturned = 0, totalWriteOff = 0, unitsReturned = 0, unitsWriteOff = 0;
+      var devLabel = fechado ? 'Devolvido' : 'Devolver';
+      var html = '<div style="font-size:12px;color:var(--t2);margin-bottom:12px">' + items.length + ' tipos de produtos' + (fechado ? ' · kit encerrado (valores conferidos no fechamento)' : '') + '</div>';
+      html += '<table style="width:100%;font-size:12px"><tr><th style="text-align:left">Produto</th><th style="text-align:center">Entregue</th><th style="text-align:center;color:#4ade80">Vendido</th><th style="text-align:center;color:#ffa500">' + devLabel + '</th><th style="text-align:right">Preço</th><th style="text-align:right">Subtotal</th>' + (fechado ? '' : '<th style="text-align:center">Ações</th>') + '</tr>';
       items.forEach(function(item) {
-        var sold = (item.quantity_pending_closure || 0) + (item.quantity_confirmed_sold || 0);
-        var avail = item.quantity_available || 0;
+        var sold = fechado ? (item.quantity_confirmed_sold || 0) : (item.quantity_pending_closure || 0) + (item.quantity_confirmed_sold || 0);
+        // Em kit encerrado o saldo do item e zerado pelo fechamento; o que nao foi vendido
+        // fica em quantity_returned. Ler quantity_available aqui mostrava "nada a devolver".
+        var dev = fechado ? (item.quantity_returned || 0) : (item.quantity_available || 0);
+        var writeOff = (item.quantity_kept_by_reseller || 0) + (item.quantity_damaged || 0) + (item.quantity_lost || 0);
         var price = (item.unit_sale_price_cents || 0) / 100;
         var subtotal = sold * price;
         totalSold += subtotal;
-        totalReturned += avail * price;
-        var rowStyle = sold > 0 ? 'background:rgba(74,222,128,.05)' : (avail > 0 ? 'background:rgba(255,165,0,.05)' : '');
+        totalReturned += dev * price;
+        totalWriteOff += writeOff * price;
+        unitsReturned += dev;
+        unitsWriteOff += writeOff;
+        var rowStyle = sold > 0 ? 'background:rgba(74,222,128,.05)' : (dev > 0 ? 'background:rgba(255,165,0,.05)' : '');
         html += '<tr style="' + rowStyle + '">';
         html += '<td style="font-weight:500">' + (item.product_name || '?') + '</td>';
         html += '<td style="text-align:center">' + (item.quantity_delivered || 0) + '</td>';
         html += '<td style="text-align:center;color:#4ade80;font-weight:600">' + sold + '</td>';
-        html += '<td style="text-align:center;color:#ffa500;font-weight:600">' + avail + '</td>';
+        html += '<td style="text-align:center;color:#ffa500;font-weight:600">' + dev + (writeOff > 0 ? '<span style="color:var(--t3);font-weight:400"> + ' + writeOff + ' retido/perda</span>' : '') + '</td>';
         html += '<td style="text-align:right">R$ ' + price.toFixed(2) + '</td>';
         html += '<td style="text-align:right;font-weight:600">R$ ' + subtotal.toFixed(2) + '</td>';
-        html += '<td style="text-align:center"><button onclick="removeItemFromKit(' + kitId + ',' + item.product_id + ')" style="background:#dc2626;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer">🗑️ Estornar</button></td>';
+        if (!fechado) html += '<td style="text-align:center"><button onclick="removeItemFromKit(' + kitId + ',' + item.product_id + ')" style="background:#dc2626;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer">🗑️ Estornar</button></td>';
         html += '</tr>';
       });
       html += '</table>';
@@ -1119,7 +1127,9 @@ async function toggleKitDetails(kitId) {
       html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Total vendido:</span><b style="color:#4ade80">R$ ' + totalSold.toFixed(2) + '</b></div>';
       html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Comissão (' + Math.round(commission*100) + '%):</span><b style="color:var(--ac)">R$ ' + commissionValue.toFixed(2) + '</b></div>';
       html += '<div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Valor devido à SexS:</span><b>R$ ' + (totalSold - commissionValue).toFixed(2) + '</b></div>';
-      html += '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--bd);padding-top:4px;margin-top:4px"><span>Itens para devolução:</span><b style="color:#ffa500">' + items.reduce(function(s,i){return s+(i.quantity_available||0)},0) + ' un (R$ ' + totalReturned.toFixed(2) + ')</b></div>';
+      html += '<div style="display:flex;justify-content:space-between;border-top:1px solid var(--bd);padding-top:4px;margin-top:4px"><span>' + (fechado ? 'Devolvidas ao estoque no fechamento:' : 'Itens para devolução:') + '</span><b style="color:#ffa500">' + unitsReturned + ' un (R$ ' + totalReturned.toFixed(2) + ')</b></div>';
+      if (fechado && unitsWriteOff > 0) html += '<div style="display:flex;justify-content:space-between;padding-top:4px"><span>Retidas / danificadas / perdidas:</span><b style="color:var(--dg)">' + unitsWriteOff + ' un (R$ ' + totalWriteOff.toFixed(2) + ')</b></div>';
+      if (fechado && kit.closure) html += '<div style="display:flex;justify-content:space-between;padding-top:4px;color:var(--t3)"><span>Fechamento registrou devolvidas:</span><b>' + (kit.closure.items_returned_to_stock || 0) + ' un</b></div>';
       html += '</div>';
       div.innerHTML = html;
     } catch(e) {
@@ -2494,14 +2504,20 @@ async function renderPortalSales() {
         });
         
         var comissao = Math.round(totalVendido * (s.commission_pct || 0));
-        
+        // Unidades que voltaram ao estoque no fechamento (quantity_returned dos itens):
+        // sem isso o kit encerrado parecia nao ter devolucao nenhuma.
+        var devolvidasFechamento = (kit.items_returned !== undefined) ? kit.items_returned : devolvidos;
+        var valorDevolvido = kit.returned_value_cents || 0;
+
         closedKitsHtml += '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:1px solid var(--bd);margin-bottom:12px">' +
-          '<div style="font-weight:600;margin-bottom:12px">Kit #' + kit.id + ' - ' + esc(kit.status.replace(/_/g, ' ')) + '</div>' +
+          '<div style="font-weight:600;margin-bottom:12px">Kit #' + kit.id + ' - ' + esc(kit.status.replace(/_/g, ' ')) + (kit.closed_at ? ' <span style="font-weight:400;color:var(--t3);font-size:11px">fechado em ' + esc(String(kit.closed_at).slice(0,10)) + '</span>' : '') + '</div>' +
           '<div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:10px">' +
-            '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Vendidos</div><div style="font-size:18px;font-weight:700;color:#4ade80">' + vendidos + '</div></div>' +
-            '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Devolvidos</div><div style="font-size:18px;font-weight:700;color:#3b82f6">' + devolvidos + '</div></div>' +
+            '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Vendidos</div><div style="font-size:18px;font-weight:700;color:#4ade80">' + ((kit.items_sold !== undefined) ? kit.items_sold : vendidos) + '</div></div>' +
+            '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Devolvidos</div><div style="font-size:18px;font-weight:700;color:#3b82f6">' + devolvidasFechamento + '</div></div>' +
             '<div><div style="font-size:10px;color:var(--t3);text-transform:uppercase">Comissão</div><div style="font-size:18px;font-weight:700;color:var(--ac)">' + f(comissao) + '</div></div>' +
           '</div>' +
+          (devolvidasFechamento > 0 ? '<div style="margin-top:10px;font-size:12px;color:var(--t2)">↩️ ' + devolvidasFechamento + ' un não vendidas voltaram para o estoque da SexS' + (valorDevolvido ? ' (R$ ' + (valorDevolvido/100).toFixed(2) + ' em mercadoria)' : '') + ' — nada é cobrado delas.</div>' : '') +
+          (devolvidos > 0 ? '<div style="margin-top:6px;font-size:11px;color:var(--t3)">' + devolvidos + ' un de vendas estornadas/corrigidas no fechamento.</div>' : '') +
         '</div>';
       });
     }
