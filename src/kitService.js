@@ -34,10 +34,13 @@ function listKits({ resellerId, status } = {}) {
 }
 
 function companyAvailableBalance(productId) {
+  // Quantidades sao gravadas com sinal (entrega_kit -2, entrada_compra +5), mas o historico
+  // tambem contem linhas antigas em valor absoluto. Normalizar por tipo deixa o saldo igual ao
+  // exibido em Produtos/Estoque (SUM(quantity)) e evita dupla negacao em ajuste_negativo.
   const row = db.prepare(`
     SELECT COALESCE(SUM(
-      CASE WHEN type IN ('entrada', 'ajuste_positivo') THEN quantity 
-           WHEN type IN ('saida', 'ajuste_negativo') THEN -quantity 
+      CASE WHEN type IN ('entrada', 'entrada_compra', 'devolucao', 'entrada_devolucao', 'retorno_kit', 'ajuste_positivo') THEN ABS(quantity)
+           WHEN type IN ('saida', 'entrega_kit', 'ajuste_negativo') THEN -ABS(quantity)
            ELSE quantity END
     ), 0) as bal 
     FROM stock_movements 

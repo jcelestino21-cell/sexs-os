@@ -917,7 +917,9 @@ router.post('/api/kits/:id/force-close', requireAuth(async (req, res, params) =>
     // Confirm all pending sales (via kit_items)
     const pendingSales = db.prepare("SELECT ks.id FROM kit_sales ks JOIN kit_items ki ON ki.id = ks.kit_item_id WHERE ki.kit_id = ? AND ks.status = 'informada'").all(kitId);
     for (const sale of pendingSales) {
-      try { kitService.decideSale(sale.id, 'confirm', req.user); } catch(e) {}
+      // 'confirmar' e a acao valida de decideSale — com outro nome ela lancava excecao e o
+      // catch engolia, deixando a venda pendente sem decidir antes do fechamento.
+      try { kitService.decideSale(sale.id, 'confirmar', req.user); } catch(e) {}
     }
     
     // Create/finalize ALL reconciliation items for this kit
@@ -2461,8 +2463,9 @@ router.post('/api/admin/fix-closed-kit', requireAuth(async (req, res) => {
       
       // Return items to stock (via stock_movements only - physical_balance is computed)
       if (returnedDiff > 0) {
+        const balAgora = db.prepare('SELECT COALESCE(SUM(quantity),0) as b FROM stock_movements WHERE product_id = ?').get(ki.product_id).b;
         db.prepare("INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?)")
-          .run(ki.product_id, 'entrada_devolucao', returnedDiff, 0,
+          .run(ki.product_id, 'entrada_devolucao', returnedDiff, balAgora + returnedDiff,
             `Correção fechamento kit #${kitId}: ${returnedDiff}un devolvidas (não vendidas)`, req.user.id);
         totalReturnedToStock += returnedDiff;
       }
@@ -3743,11 +3746,11 @@ router.post('/api/kits/:id/remove-item', requireAuth(async (req, res, params) =>
       return sendJson(res, 404, { error: 'Item não encontrado no kit' });
     }
     
-    // Calcular estoque atual do produto
+    // Calcular estoque atual do produto (mesma regra usada no resto do sistema:
+    // quantidades ja sao gravadas com sinal; o CASE antigo invertia o sinal e gravava
+    // um balance_after errado).
     const stockResult = db.prepare(`
-      SELECT COALESCE(SUM(
-        CASE WHEN type = 'entrada' THEN quantity ELSE -quantity END
-      ), 0) as balance
+      SELECT COALESCE(SUM(quantity), 0) as balance
       FROM stock_movements
       WHERE product_id = ?
     `).get(product_id);
