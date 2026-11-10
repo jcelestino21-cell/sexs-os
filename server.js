@@ -3157,6 +3157,42 @@ router.post('/api/admin/update-product-images', requireAuth(async (req, res) => 
   }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Ajustar a descrição de produtos. É o texto que a vitrine pública mostra no card,
+// então a CEO precisa poder preencher em lote sem editar um a um na tela de estoque.
+// Só mexe em products.description: preço, custo, estoque e os demais campos ficam intactos.
+router.post('/api/admin/update-product-descriptions', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const { updates } = body; // Array de {product_id, description}
+    if (!updates || !Array.isArray(updates)) {
+      return sendJson(res, 400, { error: 'updates deve ser um array' });
+    }
+    let updatedCount = 0;
+    const skipped = [];
+    for (const update of updates) {
+      const id = Number(update.product_id);
+      if (!Number.isFinite(id) || id <= 0) { skipped.push({ product_id: update.product_id, motivo: 'product_id inválido' }); continue; }
+      const found = db.prepare('SELECT id, name FROM products WHERE id = ?').get(id);
+      if (!found) { skipped.push({ product_id: id, motivo: 'produto não encontrado' }); continue; }
+      if (update.description === undefined || update.description === null) {
+        skipped.push({ product_id: id, motivo: 'sem description no item' }); continue;
+      }
+      // O card mostra o texto dentro de um <p>, então ele entra numa linha só, com teto de
+      // 600 caracteres. String vazia apaga a descrição (útil quando sobra texto velho).
+      const text = String(update.description).replace(/\s+/g, ' ').trim().slice(0, 600);
+      db.prepare('UPDATE products SET description = ? WHERE id = ?').run(text || null, id);
+      updatedCount += 1;
+      logAudit({
+        actorUserId: req.user.id, actorLabel: req.user.name, action: 'product.description_updated',
+        entityType: 'product', entityId: id, details: { name: found.name, chars: text.length, cleared: !text },
+      });
+    }
+    sendJson(res, 200, { ok: true, updated_count: updatedCount, skipped });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 // ADMIN: Update product names
 router.post('/api/admin/update-product-names', requireAuth(async (req, res) => {
   try {
