@@ -259,8 +259,8 @@ function productMessage(greeting, productName, mode) {
   return mode === 'encomenda' ? hi + ' — posso encomendar com você?' : hi;
 }
 
-/** Quem pode entregar. O nome do contato do estoque já vem configurado como o da
- * atendente (CEO-Jéssica), então não aparece a palavra "depósito" para a cliente. */
+/** Quem pode entregar. O rótulo de quem cuida do estoque vem configurado no painel com o
+ * nome de quem atende (não um nome de lugar), então a vitrine só mostra pessoa. */
 function holdersLabel(p) {
   var n = (p.holders || []).map(function (h) { return h.name; });
   if (!n.length) return '';
