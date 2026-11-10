@@ -289,8 +289,11 @@ function cardHtml(p, index) {
              + (p.available ? 'pronto para enviar' : 'sob encomenda') + '</span>'
              + '<span class="cat">' + esc(p.category) + '</span>';
   var thumb = '<div class="ph' + (p.photo_url ? '' : ' nophoto') + '">' + inner + badges + '</div>';
+  // O card corta em 3 linhas (clamp), então o texto inteiro vai também no title: no
+  // computador aparece ao passar o mouse e no celular no toque longo. Sem isso, descrição
+  // grande morre truncada no meio da frase.
   var desc = p.description
-    ? '<p class="desc">' + esc(p.description) + '</p>'
+    ? '<p class="desc" title="' + esc(p.description) + '">' + esc(p.description) + '</p>'
     : '<p class="desc empty">Descrição e detalhes no WhatsApp com quem entrega.</p>';
   var cta;
   if (p.available && p.holders.length === 1) {
