@@ -308,6 +308,7 @@ test('censura da vitrine: foto de prótese/plug não sai do servidor; consumíve
   const plug = product('Plug Anal P - Azul', { category: 'Anal', photo: 'https://fornecedores.com/plug.jpg' });
   const gel = product('Fofa Toba Excitante 15ml', { category: 'Anal', photo: 'https://fornecedores.com/gel.jpg' });
   const anel = product('Anel Vibrador Bichinhos', { category: 'Anéis Penianos', photo: 'https://fornecedores.com/anel.jpg' });
+  const arom = product('Pênis Aromático 14cm - Menta', { category: 'Próteses', photo: 'https://fornecedores.com/aroma.jpg' });
 
   const out = catalog.publicPayload();
   assert.equal(catalog.getSettings().censored_categories, 'Próteses', 'lista padrão vem da configuração');
@@ -318,6 +319,7 @@ test('censura da vitrine: foto de prótese/plug não sai do servidor; consumíve
   assert.equal(productById(out, gel.id).censored, false, 'gel excitante cadastrado em Anal não é objeto: foto fica');
   assert.equal(productById(out, gel.id).photo_url, 'https://fornecedores.com/gel.jpg');
   assert.equal(productById(out, anel.id).censored, false, 'anel não entra na censura por padrão');
+  assert.equal(productById(out, arom.id).censored, true, 'sabor no nome não livra o objeto da categoria censurada');
   // o card censurado continua inteiro: nome, categoria, descrição e contato seguem na resposta
   const card = productById(out, plug.id);
   assert.equal(card.name, 'Plug Anal P - Azul');

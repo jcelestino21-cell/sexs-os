@@ -36,7 +36,10 @@ const SETTINGS_SQL = `CREATE TABLE IF NOT EXISTS catalog_settings (
  * pegar plug vendido em categoria genérica e, ao contrário, NÃO pegar consumível
  * (gel, creme, lubrificante, perfume) cadastrado na categoria 'Anal'. */
 const OBJETO_RX = /pr[óo]tese|consolador|\bdildo\b|\bplug\b|p[êe]nis de borracha|dilata[çc]ao|an[áa]l expand/i;
-const CONSUMIVEL_RX = /\bgel\b|\bg[ée]is\b|creme|lubrific|perfume|sabonete|spray|[óo]leo|len[çc]o|comest[íi]vel|excitante|hidratante|massagem|sabor|menta|morango|cereja|champagne|tutti|[úu]va|ma[çc][ãa]|chocolate/i;
+/* Consomível = não é objeto, mesmo cadastrado numa categoria censurada. Só valem as
+ * palavras do produto em si (gel, creme, lubrificante, perfume…): sabor no nome
+ * ("Pênis Aromático - Menta") não livra ninguém da censura. */
+const CONSUMIVEL_RX = /\bgel\b|\bg[ée]is\b|creme|lubrific|perfume|sabonete|spray|[óo]leo|len[çc]o|comest[íi]vel|excitante|hidratante|massagem|pomada|serum/i;
 
 const DEFAULTS = {
   enabled: 1,
