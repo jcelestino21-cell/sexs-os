@@ -24,9 +24,19 @@ const SETTINGS_SQL = `CREATE TABLE IF NOT EXISTS catalog_settings (
   contact_whatsapp TEXT,
   contact_message TEXT,
   work_with_us_message TEXT,
+  censored_categories TEXT NOT NULL DEFAULT 'Próteses',
   updated_by INTEGER REFERENCES users(id),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`;
+
+/* Censura da vitrine: foto de objeto sexual explícito (prótese, plug, consolador) não
+ * aparece para a cliente — no lugar entra o símbolo de censura. O card continua lá, com
+ * nome e descrição, e a foto fica fora do payload (não é só escondida no CSS).
+ * A lista de categorias é configurável; o resto da regra vem do nome do produto, para
+ * pegar plug vendido em categoria genérica e, ao contrário, NÃO pegar consumível
+ * (gel, creme, lubrificante, perfume) cadastrado na categoria 'Anal'. */
+const OBJETO_RX = /pr[óo]tese|consolador|\bdildo\b|\bplug\b|p[êe]nis de borracha|dilata[çc]ao|an[áa]l expand/i;
+const CONSUMIVEL_RX = /\bgel\b|\bg[ée]is\b|creme|lubrific|perfume|sabonete|spray|[óo]leo|len[çc]o|comest[íi]vel|excitante|hidratante|massagem|sabor|menta|morango|cereja|champagne|tutti|[úu]va|ma[çc][ãa]|chocolate/i;
 
 const DEFAULTS = {
   enabled: 1,
@@ -34,13 +44,37 @@ const DEFAULTS = {
   contact_whatsapp: null,
   contact_message: null,
   work_with_us_message: 'Tenho interesse em fazer parte da equipe',
+  censored_categories: 'Próteses',
 };
 
 let tableReady = false;
 /** A tabela é criada sob demanda (mesmo padrão das demais rotas que precisam de uma
  * estrutura nova sem migração versionada): leitura nunca escreve. */
 function ensureTable() {
-  if (!tableReady) { db.exec(SETTINGS_SQL); tableReady = true; }
+  if (!tableReady) {
+    db.exec(SETTINGS_SQL);
+    const cols = db.prepare('PRAGMA table_info(catalog_settings)').all().map((c) => c.name);
+    if (!cols.includes('censored_categories')) {
+      db.prepare("ALTER TABLE catalog_settings ADD COLUMN censored_categories TEXT NOT NULL DEFAULT 'Próteses'").run();
+    }
+    tableReady = true;
+  }
+}
+
+function semAcento(txt) {
+  return String(txt || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+}
+
+function listaCensurada(settings) {
+  return String(settings.censored_categories || '').split(',').map((x) => semAcento(x)).filter(Boolean);
+}
+
+/** Verdadeiro quando a foto não pode aparecer na vitrine. */
+function fotoCensurada(p, settings) {
+  const nome = semAcento(p.name);
+  if (CONSUMIVEL_RX.test(nome)) return false; // gel/creme com nome de 'Anal' não é objeto
+  if (listaCensurada(settings).includes(semAcento(p.category))) return true;
+  return OBJETO_RX.test(nome);
 }
 
 function getSettings() {
@@ -66,17 +100,22 @@ function saveSettings(data, actorUser) {
     enabled: data.enabled === undefined ? current.enabled : (data.enabled ? 1 : 0),
     contact_label: data.contact_label === undefined ? current.contact_label : (String(data.contact_label).trim().slice(0, 60) || 'SexS'),
     contact_whatsapp: whatsapp === undefined ? current.contact_whatsapp : whatsapp,
+    censored_categories: data.censored_categories === undefined
+      ? current.censored_categories
+      : (String(data.censored_categories || '').split(',').map((x) => x.trim()).filter(Boolean).join(', ').slice(0, 200) || ''),
     work_with_us_message: data.work_with_us_message === undefined ? current.work_with_us_message : (String(data.work_with_us_message).trim().slice(0, 200) || DEFAULTS.work_with_us_message),
   };
 
   db.prepare(
     `UPDATE catalog_settings SET enabled = ?, contact_label = ?, contact_whatsapp = ?, work_with_us_message = ?,
-       updated_by = ?, updated_at = datetime('now') WHERE id = 1`
-  ).run(next.enabled, next.contact_label, next.contact_whatsapp, next.work_with_us_message, actorUser ? actorUser.id : null);
+       censored_categories = ?, updated_by = ?, updated_at = datetime('now') WHERE id = 1`
+  ).run(next.enabled, next.contact_label, next.contact_whatsapp, next.work_with_us_message,
+        next.censored_categories, actorUser ? actorUser.id : null);
   logAudit({
     actorUserId: actorUser ? actorUser.id : null, actorLabel: 'CEO', action: 'catalog.settings_updated',
     entityType: 'catalog_settings', entityId: 1,
-    details: { enabled: next.enabled, contact_label: next.contact_label, whatsapp_set: !!next.contact_whatsapp },
+    details: { enabled: next.enabled, contact_label: next.contact_label, whatsapp_set: !!next.contact_whatsapp,
+               censored_categories: next.censored_categories },
   });
   return getSettings();
 }
@@ -161,7 +200,8 @@ function catalogVersion() {
   `).all().map((r) => r.t).join('\n');
   const st = db.prepare(`
     SELECT enabled || '|' || COALESCE(contact_label, '') || '|' || COALESCE(contact_whatsapp, '')
-                  || '|' || COALESCE(work_with_us_message, '') AS t
+                  || '|' || COALESCE(work_with_us_message, '')
+                  || '|' || COALESCE(censored_categories, '') AS t
       FROM catalog_settings WHERE id = 1
   `).get();
   const marca = db.prepare("SELECT COALESCE(trade_name, '') || '|' || COALESCE(legal_name, '') AS t FROM company_settings WHERE id = 1").get();
@@ -243,7 +283,8 @@ function publicPayload({ ignoreDisabled = false } = {}) {
       name: p.name,
       category: p.category || 'Outros',
       description: (p.description || '').trim(),
-      photo_url: (p.photo_url || '').trim(),
+      photo_url: fotoCensurada(p, settings) ? '' : (p.photo_url || '').trim(),
+      censored: fotoCensurada(p, settings),
       available: holders.length > 0,
       holders,
     };

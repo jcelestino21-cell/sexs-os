@@ -31,9 +31,9 @@ function reseller(name, { active = true, phone = '(16) 99111-2222' } = {}) {
     .run(name, active ? 'ativa' : 'inativa', phone).lastInsertRowid;
 }
 
-function product(name, { active = true, price = 2502, cost = 800, depot = 0, description = '', photo = '' } = {}) {
+function product(name, { active = true, price = 2502, cost = 800, depot = 0, description = '', photo = '', category = 'Geral' } = {}) {
   const id = db.prepare('INSERT INTO products (name, category, description, photo_url, unit, ideal_price_cents, min_price_cents, last_purchase_cost_cents, active) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(name, 'Geral', description, photo, 'unidade', price, Math.round(price * 0.6), cost, active ? 1 : 0).lastInsertRowid;
+    .run(name, category, description, photo, 'unidade', price, Math.round(price * 0.6), cost, active ? 1 : 0).lastInsertRowid;
   if (cost) db.prepare('INSERT INTO stock_lots (product_id, quantity_purchased, unit_cost_cents, created_by) VALUES (?,?,?,1)').run(id, 10, cost);
   if (depot) db.prepare("INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason) VALUES (?, 'entrada', ?, ?, 'compra')").run(id, depot, depot);
   return db.prepare('SELECT * FROM products WHERE id = ?').get(id);
@@ -72,7 +72,7 @@ test('catálogo traz só nome, categoria, descrição, foto e quem entrega — n
   assert.equal(out.brand, 'SexS');
   const p = findProduct(out, 'Bolinha de Teste');
   assert.ok(p, 'produto ativo aparece na vitrine');
-  assert.deepEqual(Object.keys(p).sort(), ['available', 'category', 'description', 'holders', 'id', 'name', 'photo_url']);
+  assert.deepEqual(Object.keys(p).sort(), ['available', 'category', 'censored', 'description', 'holders', 'id', 'name', 'photo_url']);
   assert.equal(p.description, 'Uma bolinha.');
   assert.equal(p.photo_url, 'https://exemplo.com/a.jpg');
   assert.equal(p.available, true);
@@ -299,4 +299,38 @@ test('catálogo desligado: a cliente vê o aviso e a assinatura não expõe nada
   assert.equal(off2.status, 304, 'e a página parada só recebe um aviso novo uma vez');
   catalog.saveSettings({ enabled: true }, { id: ceo.id, role: 'ceo' });
   assert.notEqual((await getCatalog(off.headers.etag)).status, 304, 'religar tem que chegar na hora');
+});
+
+test('censura da vitrine: foto de prótese/plug não sai do servidor; consumível da mesma categoria fica', () => {
+  const ceo = makeCeo();
+  const protese = product('Prótese Realista 15cm', { category: 'Próteses', photo: 'https://fornecedores.com/protese.jpg' });
+  const cone = product('Cone fino 57g', { category: 'Próteses', photo: 'https://fornecedores.com/cone.jpg' });
+  const plug = product('Plug Anal P - Azul', { category: 'Anal', photo: 'https://fornecedores.com/plug.jpg' });
+  const gel = product('Fofa Toba Excitante 15ml', { category: 'Anal', photo: 'https://fornecedores.com/gel.jpg' });
+  const anel = product('Anel Vibrador Bichinhos', { category: 'Anéis Penianos', photo: 'https://fornecedores.com/anel.jpg' });
+
+  const out = catalog.publicPayload();
+  assert.equal(catalog.getSettings().censored_categories, 'Próteses', 'lista padrão vem da configuração');
+  assert.equal(productById(out, protese.id).censored, true, 'prótese é censurada');
+  assert.equal(productById(out, protese.id).photo_url, '', 'e o endereço da foto nem vai para o navegador');
+  assert.equal(productById(out, cone.id).censored, true, 'categoria censurada vale mesmo com nome neutro');
+  assert.equal(productById(out, plug.id).censored, true, 'plug solto na categoria Anal é pego pelo nome');
+  assert.equal(productById(out, gel.id).censored, false, 'gel excitante cadastrado em Anal não é objeto: foto fica');
+  assert.equal(productById(out, gel.id).photo_url, 'https://fornecedores.com/gel.jpg');
+  assert.equal(productById(out, anel.id).censored, false, 'anel não entra na censura por padrão');
+  // o card censurado continua inteiro: nome, categoria, descrição e contato seguem na resposta
+  const card = productById(out, plug.id);
+  assert.equal(card.name, 'Plug Anal P - Azul');
+  assert.equal(card.category, 'Anal');
+  assert.ok(Array.isArray(card.holders), 'e o contato continua disponível para a cliente');
+
+  // mexer na lista muda a vitrine e a assinatura (senão o ETag deixaria a cliente na versão antiga)
+  const antes = catalog.catalogVersion();
+  catalog.saveSettings({ censored_categories: 'Próteses, Anal' }, ceo);
+  assert.notEqual(catalog.catalogVersion(), antes, 'mudar a censura invalida o cache da vitrine');
+  assert.equal(productById(catalog.publicPayload(), plug.id).photo_url, '', 'plug continua censurado');
+  assert.equal(productById(catalog.publicPayload(), gel.id).censored, false, 'e o gel continua isento pela regra do nome');
+
+  catalog.saveSettings({ censored_categories: 'Próteses' }, ceo);
+  assert.equal(productById(catalog.publicPayload(), gel.id).photo_url, 'https://fornecedores.com/gel.jpg', 'settings voltam ao padrão');
 });

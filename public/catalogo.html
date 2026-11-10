@@ -100,6 +100,19 @@ button.refresh.spin svg{animation:spin .8s linear infinite}
 .ph.nophoto{display:grid;place-items:center;background:
   repeating-linear-gradient(135deg,#12151a 0 12px,#151a20 12px 24px)}
 .ph.nophoto span{text-align:center;font-size:11.5px;color:#6f7480;letter-spacing:.5px;text-transform:uppercase}
+/* Censura: card de objeto cuja foto não pode aparecer. O símbolo no lugar da imagem,
+   o card continua inteiro (nome, descrição, contato). */
+.ph.censurada{background:repeating-linear-gradient(135deg,#141821 0 10px,#1b1220 10px 20px)}
+.cens{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;padding:14px 10px}
+.cens i{font-style:normal;width:46px;height:46px;border-radius:13px;border:1.5px solid rgba(255,47,157,.55);
+  color:#ff5bb0;display:grid;place-items:center;font-size:15px;font-weight:800;letter-spacing:.5px}
+.cens span{font-size:11px;color:#9aa0ac;letter-spacing:.4px;text-transform:uppercase}
+.note{margin:14px 0 0;font-size:12.5px;color:#8b9099;line-height:1.55}
+.note b{color:#e6e7ea;font-weight:600}
+.sheet-ph{position:relative;width:100%;aspect-ratio:16/10;border-radius:14px;overflow:hidden;
+  background:#0f1216 center/contain no-repeat;margin-bottom:12px;border:1px solid rgba(255,255,255,.07)}
+.sheet-ph img{width:100%;height:100%;object-fit:contain;display:block}
+.sheet-ph .ph{aspect-ratio:auto;height:100%}
 .badge{position:absolute;top:9px;left:9px;display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,.62);
   border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:4px 9px;font-size:11px;font-weight:600;backdrop-filter:blur(4px)}
 .badge.no{color:#c9c9cf}
@@ -201,6 +214,8 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
     <div class="grid" id="grid">
       <div class="skel"></div><div class="skel"></div><div class="skel"></div>
     </div>
+    <p class="note" id="censorNote" hidden>🔞 <b>Conteúdo adulto:</b> a foto deste tipo de produto não pode aparecer no site.
+      Fale com quem entrega pelo WhatsApp — por lá a gente mostra o produto e tira a dúvida.</p>
     <div class="empty" id="empty" hidden>Nenhum produto com esse filtro. <button class="mini" onclick="Cat.reset()">limpar filtros</button></div>
   </section>
 </main>
@@ -220,6 +235,7 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
 <div class="veil" id="veil" onclick="Cat.closeSheet()"></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
   <div class="sheet-h"><h3 id="sheetTitle">Falar sobre o produto</h3><p id="sheetSub"></p></div>
+  <div id="sheetPhoto"></div>
   <div class="sheet-body" id="sheetBody"></div>
   <div class="sheet-f"><button class="cancel" onclick="Cat.closeSheet()">voltar</button></div>
 </div>
@@ -281,14 +297,26 @@ function visibleProducts() {
   });
 }
 
+/** Estado da foto de um produto: imagem real, cartão censurado ou espaço vazio.
+ *  Fica numa função só porque o mesmo bloco aparece no card e no painel de contato —
+ *  a censura precisa valer nos dois lugares. O endereço da foto censurada nem chega
+ *  do servidor (catálogo já vem sem ela), então não há o que esconder no CSS. */
+function photoState(p) {
+  if (p.censored) {
+    return { cls: 'nophoto censurada', html: '<div class="cens"><i>18+</i><span>conteúdo<br />adulto</span></div>' };
+  }
+  if (p.photo_url) {
+    return { cls: '', html: '<img src="' + esc(p.photo_url) + '" alt="' + esc(p.name) + '" loading="lazy" onerror="noPhoto(this)" />' };
+  }
+  return { cls: 'nophoto', html: '<span>foto<br />em breve</span>' };
+}
+
 function cardHtml(p, index) {
-  var inner = p.photo_url
-    ? '<img src="' + esc(p.photo_url) + '" alt="' + esc(p.name) + '" loading="lazy" onerror="noPhoto(this)" />'
-    : '<span>foto<br />em breve</span>';
+  var st = photoState(p);
   var badges = '<span class="badge ' + (p.available ? '' : 'no') + '"><span class="dot' + (p.available ? '' : ' off') + '"></span>'
              + (p.available ? 'pronto para enviar' : 'sob encomenda') + '</span>'
              + '<span class="cat">' + esc(p.category) + '</span>';
-  var thumb = '<div class="ph' + (p.photo_url ? '' : ' nophoto') + '">' + inner + badges + '</div>';
+  var thumb = '<div class="ph' + (st.cls ? ' ' + st.cls : '') + '">' + st.html + badges + '</div>';
   // O card corta em 3 linhas (clamp), então o texto inteiro vai também no title: no
   // computador aparece ao passar o mouse e no celular no toque longo. Sem isso, descrição
   // grande morre truncada no meio da frase.
@@ -350,6 +378,8 @@ function render() {
   for (var i = 0; i < list.length; i++) withIdx.push([list[i], DATA.products.indexOf(list[i])]);
   grid.innerHTML = withIdx.map(function (pair) { return cardHtml(pair[0], pair[1]); }).join('');
   document.getElementById('empty').hidden = list.length > 0;
+  // O aviso só aparece quando tem cartão censurado na tela (nada de nota solta no rodapé).
+  document.getElementById('censorNote').hidden = !list.some(function (p) { return p.censored; });
   var ready = list.filter(function (p) { return p.available; }).length;
   document.getElementById('count').textContent = list.length + ' produto' + (list.length === 1 ? '' : 's')
     + (list.length ? ' · ' + ready + ' pronto' + (ready === 1 ? '' : 's') : '');
@@ -364,7 +394,7 @@ function renderResellers() {
   document.getElementById('resellers').innerHTML = withStock.map(resellerCardHtml).join('');
 }
 
-var SHEET = { pid: null };
+var SHEET = { pid: null, photoSig: null };
 
 function openSheet(index, mode) {
   var p = DATA.products[index];
@@ -379,6 +409,16 @@ function openSheet(index, mode) {
   }] : []);
   document.getElementById('sheetTitle').textContent = mode === 'pronto' ? 'Com quem você quer falar' : 'Escolha com quem encomendar';
   document.getElementById('sheetSub').textContent = p.name + (mode === 'pronto' ? ' — pronto para enviar' : ' — sob encomenda');
+  // Foto (ou censura) no topo do painel. Só é remontada quando muda: a cada 10 s o
+  // painel se refaz e um <img> remontado piscaria na tela da cliente.
+  var sig = p.censored ? 'censurada' : (p.photo_url ? p.photo_url : 'vazio');
+  if (SHEET.photoSig !== sig) {
+    SHEET.photoSig = sig;
+    var st = photoState(p);
+    document.getElementById('sheetPhoto').innerHTML = sig === 'vazio'
+      ? ''
+      : '<div class="sheet-ph"><div class="ph' + (st.cls ? ' ' + st.cls : '') + '">' + st.html + '</div></div>';
+  }
   document.getElementById('sheetBody').innerHTML = opts.map(function (h) {
     var msg = productMessage(h.greeting || h.name, p.name, mode === 'pronto' ? 'pronto' : 'encomenda');
     var tag = h.kind === 'estoque'
@@ -397,6 +437,7 @@ function openSheet(index, mode) {
 
 function closeSheet() {
   SHEET.pid = null;
+  SHEET.photoSig = null;
   document.getElementById('veil').classList.remove('on');
   document.getElementById('sheet').classList.remove('on');
   document.body.style.overflow = '';

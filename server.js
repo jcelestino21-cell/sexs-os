@@ -3254,6 +3254,7 @@ router.get('/api/admin/catalog-settings', requireAuth((req, res) => {
         contact_label: settings.contact_label,
         contact_whatsapp: settings.contact_whatsapp,
         work_with_us_message: settings.work_with_us_message,
+        censored_categories: settings.censored_categories,
         updated_at: settings.updated_at,
       },
       preview: catalogService.publicPayload({ ignoreDisabled: true }),

@@ -497,6 +497,7 @@ function loadCatalogPanel() {
     box.innerHTML = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">' +
       '<div class="ig" style="flex:1;min-width:150px;margin-bottom:0"><label>Nome de contato do estoque</label><input id="catLabel" value="' + esc(st.contact_label || '') + '" placeholder="CEO-Jéssica" /></div>' +
       '<div class="ig" style="flex:1;min-width:150px;margin-bottom:0"><label>WhatsApp (com DDD)</label><input id="catWa" value="' + esc(st.contact_whatsapp || '') + '" placeholder="(16) 99999-9999" /></div>' +
+      '<div class="ig" style="flex:1;min-width:170px;margin-bottom:0"><label>Categorias com foto censurada</label><input id="catCens" value="' + esc(st.censored_categories || '') + '" placeholder="Próteses, Anal" /></div>' +
       '<label class="ig" style="display:flex;align-items:center;gap:7px;margin-bottom:0;min-width:140px;font-size:13px;cursor:pointer;text-align:left">' +
         '<input type="checkbox" id="catOn" style="width:auto;margin:0" ' + (st.enabled ? 'checked' : '') + ' /><span style="text-transform:none;letter-spacing:0;font-size:13px;color:var(--t1)">catálogo no ar</span></label>' +
       '<button class="btn-s" style="background:var(--sc);color:var(--bg)" onclick="saveCatalogSettings()">salvar</button>' +
@@ -504,6 +505,11 @@ function loadCatalogPanel() {
       '</div>' +
       '<div class="il"><span>Produtos na vitrine</span><span>' + prods.length + ' · ' + ready + ' prontos para enviar</span></div>' +
       '<div class="il"><span>Revendedoras com produto pronto</span><span>' + (withStock.length ? withStock.map(function (r) { return esc(r.name) + ' (' + r.products_available + ')'; }).join(' · ') : 'nenhuma no momento') + '</span></div>' +
+      '<div class="il"><span>Cartões com foto censurada</span><span>' + (function () {
+        var cen = prods.filter(function (p) { return p.censored; });
+        if (!cen.length) return 'nenhum';
+        return cen.length + ' cards — ' + cen.slice(0, 4).map(function (p) { return esc(p.name); }).join(', ') + (cen.length > 4 ? '…' : '') + ' (no lugar da foto vai o símbolo 18+; o card continua na vitrine)';
+      })() + '</span></div>' +
       '<div class="il"><span>Contato do estoque</span><span>' + (st.contact_whatsapp ? esc(st.contact_whatsapp) : '<span style="color:var(--dg)">sem número — a cliente cairia no WhatsApp genérico</span>') + '</span></div>' +
       (st.updated_at ? '<div class="il"><span>Última alteração</span><span style="color:var(--t3);font-size:11px">' + esc(st.updated_at) + '</span></div>' : '');
   }).catch(function (e) {
@@ -516,6 +522,7 @@ function saveCatalogSettings() {
     enabled: document.getElementById('catOn').checked,
     contact_label: document.getElementById('catLabel').value,
     contact_whatsapp: document.getElementById('catWa').value,
+    censored_categories: document.getElementById('catCens').value,
   }) }).then(function () {
     toast('Configurações do catálogo salvas', 'ok');
     loadCatalogPanel();
