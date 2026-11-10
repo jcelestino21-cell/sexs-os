@@ -13,6 +13,7 @@
 //  - sem nada disso = "sob encomenda": ela escolhe com quem encomendar.
 // Kit em 'aguardando_fechamento' não conta como disponível: as unidades ali estão em
 // conferência e boa parte delas está voltando para o estoque.
+const crypto = require('crypto');
 const db = require('../db');
 const { logAudit } = require('./audit');
 
@@ -109,6 +110,63 @@ function greetingName(label) {
     return true;
   });
   return personal[0] || parts[0] || clean;
+}
+
+/** Assinatura do que a vitrine mostra, usada como ETag no GET público.
+ *
+ * Por que existe: a página fica aberta no celular da cliente enquanto o sistema muda
+ * (venda lançada, unidade devolvida no fechamento de um kit, produto ativado). Ela
+ * re-pergunta a cada poucos segundos; se a assinatura for a mesma, a rota devolve 304
+ * sem corpo e nada é baixado nem reprocessado.
+ *
+ * Como é montada, e por que assim:
+ *  - nas tabelas que podem crescer (movimentos, itens de kit, vendas) usam-se agregados:
+ *    MAX(id) pega insert/delete e SUM pega quantidade que muda;
+ *  - no que é texto mostrado (nome, categoria, descrição, foto, telefone de contato,
+ *    rótulo do estoque, nome da empresa) hash do conteúdo inteiro — 71 produtos + 8
+ *    revendedoras, uns poucos KB. Só comprimento não bastava: trocar
+ *    "(16) 99111-2222" por "(16) 99888-7766" mantém o tamanho e a cliente ficaria com o
+ *    número velho para sempre; um produto renomeado com o mesmo número de letras, idem.
+ *  - o que a cliente NÃO vê (preço, custo, comissão, margem, saldo, endereço) fica fora
+ *    de propósito: mexer nisso não pode obrigar toda vitrine a baixar o catálogo de novo.
+ *  - só produto ATIVO e revendedora ATIVA entram na conta.
+ */
+function catalogVersion() {
+  ensureTable();
+  const agg = db.prepare(`
+    SELECT
+      (SELECT COALESCE(MAX(sm.id), 0) FROM stock_movements sm
+         JOIN products p ON p.id = sm.product_id AND p.active = 1) AS mv_max,
+      (SELECT COALESCE(SUM(sm.quantity), 0) FROM stock_movements sm
+         JOIN products p ON p.id = sm.product_id AND p.active = 1) AS mv_sum,
+      (SELECT COALESCE(MAX(ki.id), 0) FROM kit_items ki
+         JOIN kits k ON k.id = ki.kit_id AND k.status = 'entregue'
+         JOIN resellers r ON r.id = k.reseller_id AND r.status = 'ativa') AS ki_max,
+      (SELECT COALESCE(SUM(ki.quantity_available), 0) FROM kit_items ki
+         JOIN kits k ON k.id = ki.kit_id AND k.status = 'entregue'
+         JOIN resellers r ON r.id = k.reseller_id AND r.status = 'ativa') AS ki_in_hand,
+      (SELECT COALESCE(MAX(ks.id), 0) FROM kit_sales ks
+         JOIN kit_items ki ON ki.id = ks.kit_item_id
+         JOIN kits k ON k.id = ki.kit_id AND k.status = 'entregue'
+         JOIN resellers r ON r.id = k.reseller_id AND r.status = 'ativa') AS ks_max
+  `).get();
+  const shown = db.prepare(`
+    SELECT 'P' || id || '|' || name || '|' || COALESCE(category, '') || '|' || COALESCE(description, '')
+                || '|' || COALESCE(photo_url, '') AS t
+      FROM products WHERE active = 1 ORDER BY id
+  `).all().map((r) => r.t).join('\n');
+  const contatos = db.prepare(`
+    SELECT 'R' || id || '|' || name || '|' || COALESCE(phone, '') AS t
+      FROM resellers WHERE status = 'ativa' ORDER BY id
+  `).all().map((r) => r.t).join('\n');
+  const st = db.prepare(`
+    SELECT enabled || '|' || COALESCE(contact_label, '') || '|' || COALESCE(contact_whatsapp, '')
+                  || '|' || COALESCE(work_with_us_message, '') AS t
+      FROM catalog_settings WHERE id = 1
+  `).get();
+  const marca = db.prepare("SELECT COALESCE(trade_name, '') || '|' || COALESCE(legal_name, '') AS t FROM company_settings WHERE id = 1").get();
+  const bruto = [Object.keys(agg).map((k) => `${k}=${agg[k]}`).join('.'), shown, contatos, (st && st.t) || '', (marca && marca.t) || ''].join('#');
+  return crypto.createHash('sha256').update(bruto).digest('hex').slice(0, 32);
 }
 
 /** Unidades em mãos por revendedora (só kit aberto e revendedora ativa). */
@@ -219,4 +277,4 @@ function publicPayload({ ignoreDisabled = false } = {}) {
   };
 }
 
-module.exports = { getSettings, saveSettings, publicPayload, normalizeWhatsapp, greetingName };
+module.exports = { getSettings, saveSettings, publicPayload, catalogVersion, normalizeWhatsapp, greetingName };

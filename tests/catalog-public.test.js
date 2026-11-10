@@ -1,12 +1,15 @@
 process.env.SEXSOS_DB_PATH = ':memory:';
+process.env.PORT = 0;
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const db = require('../db');
 const { hashPassword } = require('../src/auth');
 const catalog = require('../src/catalogService');
 
 // A vitrine pública é o único canto do sistema sem login. O que este arquivo garante:
+//  - o ar da vitrine acompanha o sistema sem F5 (ETag/304 no GET público);
 //  - nada de preço/custo/comissão/margem sai no JSON (o pedido da CEO é explícito);
 //  - "disponível" vem de kit ABERTO de revendedora ATIVA ou do estoque da empresa;
 //  - desativar a revendedora tira ela e o estoque dela da vitrine;
@@ -51,6 +54,11 @@ function deliveredKit(resellerId, productId, inHand, { status = 'entregue' } = {
 
 function findProduct(payload, name) {
   return payload.products.find((p) => p.name === name);
+}
+
+/** Por id: o teste renomeia produto no meio, e é justamente isso que se quer olhar. */
+function productById(payload, id) {
+  return payload.products.find((p) => p.id === id);
 }
 
 test('catálogo traz só nome, categoria, descrição, foto e quem entrega — nunca preço', () => {
@@ -138,4 +146,157 @@ test('desligar o catálogo tira os dados da resposta, e o painel da CEO continua
 
   catalog.saveSettings({ enabled: true }, { id: ceo.id, role: 'ceo' });
   assert.equal(catalog.publicPayload().enabled, true);
+});
+
+
+/* ————————————————— tempo real —————————————————
+ * A vitrine é aberta no celular da cliente e fica parada na tela enquanto o sistema
+ * muda (venda lançada, unidade devolvida no fechamento, produto ativado). Recarregar o
+ * JSON inteiro a cada poucos segundos custaria ~25 KB por cliente e bateria à toa, então:
+ * a rota manda Cache-Control: no-store + ETag derivado de um resumo do que a vitrine
+ * mostra, e a página re-pergunta com If-None-Match. Igual = 304 vazio (nada é
+ * reprocessado); diferente = payload novo. Este bloco trava os dois lados do contrato. */
+
+let server, baseUrl;
+test.before(async () => {
+  server = require('../server.js');
+  await new Promise((resolve) => {
+    if (server.listening) return resolve();
+    server.once('listening', resolve);
+  });
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+});
+test.after(() => { if (server) server.close(); });
+
+function getCatalog(ifNoneMatch) {
+  return new Promise((resolve, reject) => {
+    const opts = ifNoneMatch ? { headers: { 'If-None-Match': ifNoneMatch } } : {};
+    http.get(baseUrl + '/api/public/catalog', opts, (res) => {
+      let raw = '';
+      res.on('data', (c) => raw += c);
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        headers: res.headers,
+        body: raw ? JSON.parse(raw) : null,
+        bytes: Buffer.byteLength(raw),
+      }));
+    }).on('error', reject);
+  });
+}
+
+test('assinatura do catálogo: só muda com o que a cliente vê', () => {
+  const ceo = makeCeo();
+  const rA = reseller('Ana Assinatura');
+  const prod = product('Produto Assinado', { price: 2502, cost: 800 });
+  const v0 = catalog.catalogVersion();
+  assert.ok(v0.length > 10);
+  assert.equal(catalog.catalogVersion(), v0, 'duas leituras seguidas, sem mexer em nada, dão a mesma assinatura');
+
+  // preço/custo são internos: mexer neles não pode obrigar toda cliente a baixar de novo
+  db.prepare('UPDATE products SET ideal_price_cents = 4200, min_price_cents = 3000, last_purchase_cost_cents = 1500 WHERE id = ?').run(prod.id);
+  assert.equal(catalog.catalogVersion(), v0, 'mudar preço não muda a vitrine');
+
+  // produto inativo não aparece na vitrine: nem criar nem reabastecer um deve disparar
+  const vInativo = catalog.catalogVersion();
+  const off = product('Produto Fora Da Vitrine', { active: false, depot: 7 });
+  assert.equal(catalog.catalogVersion(), vInativo, 'produto inativo (e o movimento dele) fica fora da conta');
+
+  // o que ela vê: nome, categoria, descrição, foto
+  const vRename = catalog.catalogVersion();
+  db.prepare('UPDATE products SET name = ? WHERE id = ?').run('Produto Assinada', prod.id); // mesmo tanto de letras
+  assert.notEqual(catalog.catalogVersion(), vRename, 'renomear o produto troca a vitrine mesmo com o mesmo número de caracteres');
+  db.prepare('UPDATE products SET description = ? WHERE id = ?').run('Novo texto da descrição.', prod.id);
+  const v1 = catalog.catalogVersion();
+  assert.notEqual(v1, v0, 'descrição nova muda a vitrine');
+  db.prepare('UPDATE products SET photo_url = ? WHERE id = ?').run('https://exemplo.com/foto.jpg', prod.id);
+  assert.notEqual(catalog.catalogVersion(), v1, 'foto nova muda a vitrine');
+
+  // disponibilidade: unidade que chega ao estoque da empresa
+  const vBeforeStock = catalog.catalogVersion();
+  assert.equal(productById(catalog.publicPayload(), prod.id).available, false, 'antes dele, sob encomenda');
+  db.prepare("INSERT INTO stock_movements (product_id, type, quantity, balance_after, reason) VALUES (?, 'entrada', 3, 3, 'devolucao')").run(prod.id);
+  assert.notEqual(catalog.catalogVersion(), vBeforeStock, 'entrada de estoque muda a assinatura');
+  assert.equal(productById(catalog.publicPayload(), prod.id).available, true, 'e o produto passa a ficar pronto na vitrine');
+
+  // revendedora: telefone (o número do botão) e ativação
+  const v2 = catalog.catalogVersion();
+  db.prepare('UPDATE resellers SET phone = ? WHERE id = ?').run('(16) 99888-7766', rA);
+  assert.notEqual(catalog.catalogVersion(), v2, 'telefone novo muda o botão de contato');
+  const vAfterPhone = catalog.catalogVersion();
+  db.prepare('UPDATE resellers SET address = ? WHERE id = ?').run('Rua Sem Interesse', rA);
+  assert.equal(catalog.catalogVersion(), vAfterPhone, 'endereço da revendedora não está na vitrine');
+  const v3 = catalog.catalogVersion();
+  db.prepare("UPDATE resellers SET status = 'inativa' WHERE id = ?").run(rA);
+  assert.notEqual(catalog.catalogVersion(), v3, 'revendedora desativada muda a vitrine');
+
+  // configurações do painel: rótulo do contato, número, ligar/desligar
+  const v4 = catalog.catalogVersion();
+  // regravar o que já estava gravado não pode derrubar a cache de todas as clientes
+  catalog.saveSettings({ contact_label: 'CEO-Jéssica', contact_whatsapp: '(16) 99999-0000' }, { id: ceo.id, role: 'ceo' });
+  assert.equal(catalog.catalogVersion(), v4, 'salvar as mesmas configurações não muda a vitrine');
+  catalog.saveSettings({ contact_label: 'Atendimento SexS' }, { id: ceo.id, role: 'ceo' });
+  assert.notEqual(catalog.catalogVersion(), v4, 'trocar o rótulo do contato do estoque muda a vitrine');
+  const vRotulo = catalog.catalogVersion();
+  catalog.saveSettings({ work_with_us_message: 'Quero vender com vocês' }, { id: ceo.id, role: 'ceo' });
+  assert.notEqual(catalog.catalogVersion(), vRotulo, 'a mensagem do "trabalhe conosco" também aparece na página');
+  assert.notEqual(catalog.catalogVersion(), v4, 'trocar o rótulo do contato do estoque muda a vitrine');
+  const v5 = catalog.catalogVersion();
+  catalog.saveSettings({ enabled: false }, { id: ceo.id, role: 'ceo' });
+  assert.notEqual(catalog.catalogVersion(), v5, 'desligar a vitrine tem que chegar na cliente');
+  assert.equal(catalog.publicPayload().enabled, false);
+  catalog.saveSettings({ enabled: true }, { id: ceo.id, role: 'ceo' });
+  const vReligado = catalog.catalogVersion();
+  db.prepare('UPDATE products SET active = 1 WHERE id = ?').run(off.id);
+  assert.notEqual(catalog.catalogVersion(), vReligado, 'reativar um produto muda a vitrine na hora');
+});
+
+test('GET /api/public/catalog: no-store + ETag, e 304 quando nada mudou', async () => {
+  makeCeo();
+  product('Produto Cache', { depot: 2 });
+  const a = await getCatalog();
+  assert.equal(a.status, 200);
+  assert.equal(a.headers['cache-control'], 'no-store', 'a vitrine nunca pode ser servida de um cache velho');
+  assert.match(a.headers.etag || '', /^W\/"[0-9a-f]{32}"$/, 'ETag fraco, em ASCII, estável');
+  assert.ok(/^[\x20-\x7e]*$/.test(a.headers.etag), 'cabeçalho sem byte fora do ASCII (proxy não corrompe)');
+  assert.ok(a.bytes > 200, 'veio o corpo completo na primeira leitura');
+  assert.ok(Array.isArray(a.body.products) && a.body.products.length > 0);
+
+  const b = await getCatalog(a.headers.etag);
+  assert.equal(b.status, 304, 'com o ETag anterior, a conferência não baixa nada');
+  assert.equal(b.bytes, 0, '304 sem corpo');
+  assert.equal(b.headers['cache-control'], 'no-store');
+  assert.equal(b.headers.etag, a.headers.etag, 'e confirma o mesmo ETag');
+
+  // o navegador manda o ETag com o W/ que recebeu; também tem que bater
+  const bare = a.headers.etag.replace(/^W\//, '');
+  assert.equal((await getCatalog(bare)).status, 304, 'If-None-Match sem o prefixo W/ bate igual');
+  assert.equal((await getCatalog(`"nada-a-ver", ${bare}`)).status, 304, 'lista de ETags: um batendo basta');
+  assert.equal((await getCatalog('W/"outro-valor"')).status, 200, 'ETag diferente volta o payload inteiro');
+
+  // e a mudança no sistema chega: produto some do ar -> nova assinatura
+  const c = await getCatalog(a.headers.etag);
+  assert.equal(c.status, 304, 'antes de mexer, continua igual');
+  const prod = db.prepare("SELECT id FROM products WHERE name = 'Produto Cache'").get();
+  db.prepare('UPDATE products SET active = 0 WHERE id = ?').run(prod.id);
+  const d = await getCatalog(a.headers.etag);
+  assert.equal(d.status, 200, 'produto desativado aparece para a cliente, então tem que vir o payload novo');
+  assert.notEqual(d.headers.etag, a.headers.etag);
+  db.prepare('UPDATE products SET active = 1 WHERE id = ?').run(prod.id);
+});
+
+test('catálogo desligado: a cliente vê o aviso e a assinatura não expõe nada', async () => {
+  const ceo = makeCeo();
+  product('Produto No Escuro', { depot: 3 });
+  const on = await getCatalog();
+  assert.ok(on.body.products.length > 0);
+  catalog.saveSettings({ enabled: false }, { id: ceo.id, role: 'ceo' });
+  const off = await getCatalog();
+  assert.equal(off.status, 200);
+  assert.equal(off.body.enabled, false);
+  assert.equal(off.body.products, undefined, 'fora do ar não vaza produto nem contato');
+  assert.match(off.headers.etag, /^W\/"[0-9a-f]{32}"$/, 'mesmo desligado o 304 funciona');
+  const off2 = await getCatalog(off.headers.etag);
+  assert.equal(off2.status, 304, 'e a página parada só recebe um aviso novo uma vez');
+  catalog.saveSettings({ enabled: true }, { id: ceo.id, role: 'ceo' });
+  assert.notEqual((await getCatalog(off.headers.etag)).status, 304, 'religar tem que chegar na hora');
 });

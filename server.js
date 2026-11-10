@@ -127,6 +127,21 @@ function loadEnv() {
 const IS_DEMO_MODE = process.env.SEXSOS_ENABLE_DEMO_TOKEN === 'true';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
+/**
+ * Compara o If-None-Match do cliente com o ETag que nós geraríamos.
+ * Aceita '*' e lista separada por vírgula, e ignora o prefixo 'W/' (validador fraco) —
+ * sem isso o navegador ecoa exatamente o ETag fraco que recebeu e o servidor nunca devolve
+ * 304, ou seja, a vitrine pagaria 25 KB de JSON a cada conferência.
+ */
+function etagMatches(ifNoneMatchHeader, etag) {
+  if (!ifNoneMatchHeader || !etag) return false;
+  const raw = String(ifNoneMatchHeader).trim();
+  if (raw === '*') return true;
+  const norm = (v) => String(v).trim().replace(/^W\//i, '').replace(/^"(.*)"$/, '$1');
+  const wanted = norm(etag);
+  return raw.split(',').some((candidate) => candidate.trim() && norm(candidate) === wanted);
+}
+
 function sendJson(res, status, data) {
   const body = JSON.stringify(data);
 
@@ -3171,7 +3186,22 @@ router.post('/api/admin/update-product-names', requireAuth(async (req, res) => {
 // comissão, margem ou quantidade em estoque (o payload é montado sob medida no serviço).
 router.get('/api/public/catalog', (req, res) => {
   try {
-    res.setHeader('Cache-Control', 'public, max-age=30, must-revalidate');
+    // Sempre lido na hora: a vitrine reflete a venda/estoque no instante em que abre.
+    res.setHeader('Cache-Control', 'no-store');
+    // A assinatura já vem em hex (ASCII) do serviço — cabeçalho HTTP não deve carregar
+    // byte fora do ASCII, ou um proxy corrompe e o 304 viraria 200 para sempre.
+    const version = catalogService.catalogVersion();
+    // Fraco (W/) de propósito: a cada leitura o payload traz um generated_at novo, então os
+    // bytes não são idênticos — o que é igual é a informação que a cliente vê.
+    const versionTag = version ? 'W/"' + version + '"' : null;
+    res.setHeader('ETag', versionTag);
+    res.setHeader('X-Catalog-Version', versionTag);
+    // A página em segundo plano só pergunta "mudou alguma coisa?"; se o ETag bate, devolve
+    // 304 sem corpo e nada é reprocessado.
+    if (etagMatches(req.headers['if-none-match'], versionTag)) {
+      res.writeHead(304, { ETag: versionTag, 'X-Catalog-Version': versionTag });
+      return res.end();
+    }
     sendJson(res, 200, catalogService.publicPayload());
   } catch (e) {
     sendJson(res, 500, { error: `Catálogo indisponível: ${e.message}` });
