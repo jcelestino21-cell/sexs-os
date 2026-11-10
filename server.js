@@ -20,6 +20,7 @@ const proposalService = require('./src/proposalService');
 require('./src/stockIntents');       // registra o fluxo de compra de estoque (Diego)
 const resellerService = require('./src/resellerService');
 const kitService = require('./src/kitService');
+const catalogService = require('./src/catalogService');
 const financeService = require('./src/financeService');
 const dashboardService = require('./src/dashboardService');
 const commercialService = require('./src/commercialService');
@@ -2868,8 +2869,16 @@ router.get('/catalogo', (req, res) => {
   const fs = require('fs');
   const path = require('path');
   const catalogoPath = path.join(__dirname, 'public', 'catalogo.html');
-  const html = fs.readFileSync(catalogoPath, 'utf8');
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  let html;
+  try {
+    html = fs.readFileSync(catalogoPath, 'utf8');
+  } catch (e) {
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Catálogo indisponível no momento.');
+  }
+  // no-cache: a vitrine muda com o estoque, e um HTML velho no navegador deixaria a
+  // cliente vendo produto esgotado (o conteúdo em si é público, nada sensível).
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
   res.end(html);
 });
 
@@ -3157,41 +3166,45 @@ router.post('/api/admin/update-product-names', requireAuth(async (req, res) => {
   }
 }, { roles: ['ceo'] }));
 
-// PUBLIC: Catalog endpoint (no auth required)
+// PUBLIC: catálogo da cliente final (sem login). Serve só o que a vitrine precisa:
+// nome, categoria, descrição, foto e quem consegue entregar — nada de preço, custo,
+// comissão, margem ou quantidade em estoque (o payload é montado sob medida no serviço).
 router.get('/api/public/catalog', (req, res) => {
   try {
-    const products = db.prepare(`
-      SELECT 
-        p.id,
-        p.name,
-        p.category,
-        p.description,
-        p.photo_url,
-        p.ideal_price_cents,
-        p.last_purchase_cost_cents,
-        COALESCE((SELECT SUM(quantity) FROM stock_movements WHERE product_id = p.id), 0) as physical_balance,
-        COALESCE((SELECT SUM(quantity) FROM stock_reservations WHERE product_id = p.id AND status = 'ativa'), 0) as reserved
-      FROM products p
-      WHERE p.active = 1
-      ORDER BY p.category, p.name
-    `).all();
-
-    // Formatar dados para o catálogo
-    const catalog = products.map(p => ({
-      name: p.name,
-      description: p.description || '',
-      image_url: p.photo_url || '',
-      category: p.category || 'Outros',
-      availability: (p.physical_balance - p.reserved) || 0,
-      price_cents: p.ideal_price_cents || 0,
-      specs: []
-    }));
-
-    sendJson(res, 200, { success: true, catalog });
-  } catch(e) {
-    sendJson(res, 500, { error: e.message });
+    res.setHeader('Cache-Control', 'public, max-age=30, must-revalidate');
+    sendJson(res, 200, catalogService.publicPayload());
+  } catch (e) {
+    sendJson(res, 500, { error: `Catálogo indisponível: ${e.message}` });
   }
 });
+
+// ADMIN: configuração da vitrine pública (ligar/desligar, nome e WhatsApp de contato).
+router.get('/api/admin/catalog-settings', requireAuth((req, res) => {
+  try {
+    const settings = catalogService.getSettings();
+    sendJson(res, 200, {
+      settings: {
+        enabled: settings.enabled === 1,
+        contact_label: settings.contact_label,
+        contact_whatsapp: settings.contact_whatsapp,
+        work_with_us_message: settings.work_with_us_message,
+        updated_at: settings.updated_at,
+      },
+      preview: catalogService.publicPayload({ ignoreDisabled: true }),
+    });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+router.post('/api/admin/catalog-settings', requireAuth(async (req, res) => {
+  const body = await readJsonBody(req);
+  try {
+    sendJson(res, 200, { ok: true, settings: catalogService.saveSettings(body, req.user), message: 'Configurações do catálogo salvas.' });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
 
 // ADMIN: Get kit closure details
 router.get('/api/admin/kit-closure/:kitId', requireAuth((req, res, params) => {

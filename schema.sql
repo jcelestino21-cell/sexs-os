@@ -319,6 +319,18 @@ CREATE TABLE IF NOT EXISTS receivable_payments (
 -- DOCUMENTOS
 -- =============================================================================
 
+-- Vitrine pública (catálogo da cliente final): contato do estoque e interruptor.
+CREATE TABLE IF NOT EXISTS catalog_settings (
+  id INTEGER PRIMARY KEY CHECK(id = 1),
+  enabled INTEGER NOT NULL DEFAULT 1,
+  contact_label TEXT NOT NULL DEFAULT 'SexS',
+  contact_whatsapp TEXT,
+  contact_message TEXT,
+  work_with_us_message TEXT,
+  updated_by INTEGER REFERENCES users(id),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS documents (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   reseller_id INTEGER NOT NULL REFERENCES resellers(id),

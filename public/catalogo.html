@@ -1,699 +1,440 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SexS — Catálogo Premium</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Sans:wght@300;400;500;600;700&family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --preto-absoluto: #000000;
-            --preto-azulado: #0C0F14;
-            --grafite: #181C1F;
-            --rosa-sexs: #FF2F9D;
-            --rosa-claro: #EFA9C8;
-            --branco: #FFFFFF;
-            --cinza-secundario: #A8A8AD;
-            --rosa-glow: rgba(255, 47, 157, 0.15);
-            --rosa-glow-strong: rgba(255, 47, 157, 0.3);
-        }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SexS — Catálogo de produtos</title>
+<meta name="description" content="Catálogo SexS: veja os produtos disponíveis e fale pelo WhatsApp com a revendedora que tem o item em mãos. Preços e combinações direto no WhatsApp." />
+<meta name="theme-color" content="#0C0F14" />
+<meta property="og:title" content="SexS — Catálogo de produtos" />
+<meta property="og:description" content="Toque no WhatsApp de quem tem o produto com você." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="/favicon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --ink:#0C0F14; --ink2:#141922; --card:#181C1F; --line:#2A2F38;
+  --rose:#FF2F9D; --rose-soft:#EFA9C8; --rose-dim:rgba(255,47,157,.12);
+  --txt:#FFFFFF; --txt2:#A8A8AD; --ok:#4ade80; --wa:#25D366;
+  --shadow:0 10px 30px rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--txt);line-height:1.55;-webkit-font-smoothing:antialiased;
+  font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+h1,h2,h3,.serif{font-family:'Playfair Display',Georgia,serif;font-weight:600;margin:0}
+a{color:inherit}
+button{font-family:inherit}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px}
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+/* topo */
+.hero{background:radial-gradient(1000px 420px at 50% -10%,rgba(255,47,157,.22),transparent 70%),linear-gradient(180deg,#000 0%,var(--ink) 100%);
+  border-bottom:1px solid var(--line);padding:34px 0 26px;text-align:center}
+.hero .logo{height:34px;opacity:.95}
+.hero h1{font-size:clamp(28px,6vw,46px);letter-spacing:.3px;margin:10px 0 6px}
+.hero h1 em{font-style:normal;color:var(--rose)}
+.hero p{margin:0 auto;max-width:560px;color:var(--txt2);font-size:15px}
+.hero .hint{display:inline-flex;gap:8px;align-items:center;margin-top:14px;padding:7px 13px;border:1px solid var(--line);
+  border-radius:999px;font-size:12.5px;color:var(--txt2);background:rgba(255,255,255,.03)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(74,222,128,.18)}
+.dot.off{background:#8b8b93;box-shadow:none}
 
-        body {
-            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--preto-azulado);
-            color: var(--branco);
-            line-height: 1.6;
-            -webkit-font-smoothing: antialiased;
-        }
+/* barra de filtros */
+.bar{position:sticky;top:0;z-index:20;background:rgba(12,15,20,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar-in{display:flex;gap:10px;align-items:center;padding:11px 0;flex-wrap:wrap}
+.search{flex:1 1 220px;min-width:0;display:flex;align-items:center;gap:8px;background:var(--ink2);border:1px solid var(--line);
+  border-radius:999px;padding:0 14px}
+.search svg{flex:0 0 auto;opacity:.6}
+.search input{flex:1;background:none;border:0;outline:0;color:var(--txt);font-size:14.5px;padding:11px 0}
+.chips{display:flex;gap:7px;overflow-x:auto;padding:0 0 11px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{white-space:nowrap;border:1px solid var(--line);background:var(--ink2);color:var(--txt2);border-radius:999px;
+  padding:7px 12px;font-size:12.5px;cursor:pointer;transition:.15s}
+.chip:hover{color:var(--txt);border-color:var(--rose)}
+.chip.on{background:var(--rose);border-color:var(--rose);color:#12060c;font-weight:600}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--txt2);cursor:pointer;user-select:none;
+  border:1px solid var(--line);background:var(--ink2);border-radius:999px;padding:7px 12px}
+.switch input{accent-color:var(--rose);width:15px;height:15px}
+.count{font-size:12.5px;color:var(--txt2);margin-left:auto}
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 40px 20px;
-        }
+/* revendedoras */
+.sect{padding:26px 0 4px}
+.sect-h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.sect-h h2{font-size:21px}
+.sect-h span{font-size:12.5px;color:var(--txt2)}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:11px}
+.rcard{display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,var(--card),#15181c);border:1px solid var(--line);
+  border-radius:16px;padding:12px}
+.rcard.sel{border-color:var(--rose);box-shadow:0 0 0 1px var(--rose) inset}
+.avatar{flex:0 0 auto;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:15px;
+  background:linear-gradient(140deg,var(--rose),#8d1a56);color:#fff}
+.rmeta{min-width:0;flex:1}
+.rname{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rsub{font-size:12px;color:var(--txt2)}
+.racts{display:flex;flex-direction:column;gap:6px}
+.mini{border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--txt2);border-radius:10px;padding:6px 9px;
+  font-size:11.5px;cursor:pointer;white-space:nowrap;transition:.15s;text-align:center;text-decoration:none}
+.mini:hover{color:var(--txt);border-color:var(--rose)}
+.mini.wa{border-color:rgba(37,211,102,.45);color:#b9f5d0;background:rgba(37,211,102,.1)}
+.mini.wa:hover{background:rgba(37,211,102,.2);border-color:var(--wa)}
 
-        .header {
-            text-align: center;
-            padding: 60px 20px;
-            background: linear-gradient(135deg, var(--preto-absoluto) 0%, var(--grafite) 100%);
-            border-bottom: 1px solid var(--rosa-sexs);
-        }
+/* grade de produtos */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px;padding:8px 0 6px}
+.card{display:flex;flex-direction:column;background:linear-gradient(180deg,var(--card),#14171b);border:1px solid var(--line);
+  border-radius:18px;overflow:hidden;transition:.18s;opacity:0;transform:translateY(6px);animation:in .3s forwards}
+@keyframes in{to{opacity:1;transform:none}}
+.card:hover{border-color:rgba(255,47,157,.55);box-shadow:var(--shadow);transform:translateY(-2px)}
+.ph{position:relative;aspect-ratio:1/1;background:#0f1216 center/cover no-repeat}
+.ph img{width:100%;height:100%;object-fit:cover;display:block}
+.ph.nophoto{display:grid;place-items:center;background:
+  repeating-linear-gradient(135deg,#12151a 0 12px,#151a20 12px 24px)}
+.ph.nophoto span{text-align:center;font-size:11.5px;color:#6f7480;letter-spacing:.5px;text-transform:uppercase}
+.badge{position:absolute;top:9px;left:9px;display:inline-flex;align-items:center;gap:6px;background:rgba(0,0,0,.62);
+  border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:4px 9px;font-size:11px;font-weight:600;backdrop-filter:blur(4px)}
+.badge.no{color:#c9c9cf}
+.cat{position:absolute;top:9px;right:9px;background:rgba(0,0,0,.5);border-radius:8px;padding:3px 7px;font-size:10.5px;color:var(--rose-soft)}
+.body{padding:12px 13px 13px;display:flex;flex-direction:column;gap:7px;flex:1}
+.name{font-size:15px;font-weight:600;line-height:1.3}
+.desc{font-size:12.5px;color:var(--txt2);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0}
+.desc.empty{font-style:italic;color:#7d828c}
+.who{font-size:12px;color:var(--rose-soft);min-height:17px}
+.acts{margin-top:auto;display:flex;gap:8px;padding-top:3px}
+.cta{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:11px;
+  padding:10px 12px;font-size:13.5px;font-weight:700;cursor:pointer;background:var(--wa);color:#06240f;transition:.15s;
+  text-decoration:none}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--rose);outline-offset:2px}
+.cta:hover{filter:brightness(1.08)}
+.cta.alt{background:var(--rose);color:#12060c}
+.cta.ghost{background:rgba(255,255,255,.06);color:var(--txt);border:1px solid var(--line);font-weight:600}
+.cta svg{width:15px;height:15px;flex:0 0 auto}
 
-        .header h1 {
-            font-family: 'Playfair Display', serif;
-            font-size: 3.5em;
-            margin-bottom: 10px;
-            color: var(--branco);
-        }
+/* folha de contato */
+.veil{position:fixed;inset:0;background:rgba(4,6,9,.72);backdrop-filter:blur(3px);display:none;z-index:60}
+.veil.on{display:block}
+.sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(430px,92vw);background:var(--card);
+  border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);z-index:70;display:none;overflow:hidden}
+.sheet.on{display:block}
+.sheet-h{padding:15px 16px 12px;border-bottom:1px solid var(--line)}
+.sheet-h h3{font-size:17px;margin-bottom:3px}
+.sheet-h p{margin:0;font-size:12.5px;color:var(--txt2)}
+.sheet-body{padding:10px 12px 14px;max-height:56vh;overflow:auto;display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:var(--ink2);border:1px solid var(--line);
+  border-radius:14px;padding:11px 12px;cursor:pointer;color:var(--txt);text-decoration:none;transition:.15s}
+.opt:hover{border-color:var(--wa)}
+.opt .rmeta{flex:1}
+.opt .tag{font-size:11px;color:var(--txt2)}
+.opt .go{flex:0 0 auto;font-size:11.5px;font-weight:700;color:#b9f5d0}
+.sheet-f{padding:0 12px 13px}
+.cancel{width:100%;background:none;border:1px solid var(--line);color:var(--txt2);border-radius:12px;padding:10px;cursor:pointer;font-size:13px}
+.cancel:hover{color:var(--txt)}
 
-        .header .brand-accent {
-            color: var(--rosa-sexs);
-        }
+/* estados */
+.notice{margin:18px 0;padding:13px 15px;border:1px solid var(--line);border-radius:14px;background:var(--ink2);color:var(--txt2);font-size:13.5px}
+.notice b{color:var(--txt)}
+.skel{height:100%;min-height:300px;background:linear-gradient(90deg,#14181d 25%,#1a1f26 37%,#14181d 63%);
+  background-size:400% 100%;animation:sh 1.3s infinite;border-radius:18px}
+@keyframes sh{0%{background-position:100% 0}100%{background-position:-100% 0}}
+.empty{padding:40px 10px;text-align:center;color:var(--txt2);font-size:14px}
 
-        .header p {
-            font-size: 1.2em;
-            color: var(--cinza-secundario);
-        }
-
-        .category {
-            margin-bottom: 60px;
-        }
-
-        .category-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 30px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid var(--rosa-sexs);
-        }
-
-        .category-title {
-            font-family: 'Playfair Display', serif;
-            font-size: 2em;
-            color: var(--rosa-sexs);
-        }
-
-        .category-count {
-            background: var(--rosa-sexs);
-            color: var(--branco);
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: 600;
-        }
-
-        .product-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 25px;
-        }
-
-        .product-card {
-            background: var(--grafite);
-            border-radius: 12px;
-            overflow: hidden;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255, 47, 157, 0.1);
-        }
-
-        .product-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px var(--rosa-glow-strong);
-            border-color: var(--rosa-sexs);
-        }
-
-        .product-image-container {
-            position: relative;
-            width: 100%;
-            height: 180px;
-            overflow: hidden;
-            background: var(--preto-absoluto);
-        }
-
-        .product-image {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transition: transform 0.3s ease;
-        }
-
-        .product-card:hover .product-image {
-            transform: scale(1.1);
-        }
-
-        .product-content {
-            padding: 20px;
-        }
-
-        .product-name {
-            font-size: 1.1em;
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: var(--branco);
-            line-height: 1.4;
-        }
-
-        .product-description {
-            font-size: 0.85em;
-            color: var(--cinza-secundario);
-            margin-bottom: 15px;
-            line-height: 1.5;
-        }
-
-        .product-specs {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-bottom: 15px;
-        }
-
-        .spec-tag {
-            background: rgba(255, 47, 157, 0.15);
-            color: var(--rosa-claro);
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 0.75em;
-            border: 1px solid rgba(255, 47, 157, 0.3);
-        }
-
-        .product-cta {
-            width: 100%;
-            padding: 12px;
-            background: var(--rosa-sexs);
-            color: var(--branco);
-            border: none;
-            border-radius: 8px;
-            font-size: 1em;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .product-cta:hover {
-            background: var(--rosa-claro);
-            transform: scale(1.02);
-        }
-
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2.5em;
-            }
-
-            .product-grid {
-                grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-                gap: 20px;
-            }
-
-            .product-image-container {
-                height: 160px;
-            }
-        }
-    </style>
+/* rodapé trabalhe conosco */
+.work{margin:34px 0 0;border-top:1px solid var(--line);background:
+  radial-gradient(700px 240px at 50% 0,rgba(255,47,157,.16),transparent 70%),#0b0e12;padding:30px 0 40px;text-align:center}
+.work h2{font-size:clamp(20px,4.5vw,27px);margin-bottom:7px}
+.work p{margin:0 auto 16px;max-width:440px;color:var(--txt2);font-size:13.5px}
+.work .cta{max-width:320px;margin:0 auto;padding:12px 16px;font-size:14.5px}
+.legal{margin-top:20px;font-size:11.5px;color:#6d7178}
+@media (max-width:560px){
+  .racts{flex-direction:row}
+  .bar-in{padding:9px 0 0}
+  .count{display:none}
+}
+</style>
 </head>
 <body>
-    <div class="header">
-        <h1>Sex<span class="brand-accent">S</span></h1>
-        <p>Catálogo Premium</p>
-    </div>
+<header class="hero">
+  <div class="wrap">
+    <img class="logo" src="/logo-sm.png" alt="SexS" />
+    <h1 id="heroTitle">Catálogo <em>SexS</em></h1>
+    <p id="heroSub">Veja o que está disponível agora e fale direto no WhatsApp de quem tem o produto em mãos.</p>
+    <div class="hint"><span class="dot" id="liveDot"></span><span id="liveTxt">atualizando…</span></div>
+  </div>
+</header>
 
-    <div class="container">
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Acessórios</h2>
-                <span class="category-count">1 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://cdn.dooca.store/153750/products/toyk8qrfsp8h3nd4y1lmmn6xwkwdifv4nilz.jpg?v=1733154130" alt="Papermint Lâminas" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Papermint Lâminas</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Papermint%20L%C3%A2minas', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Anal</h2>
-                <span class="category-count">3 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17072385076057_thumb.jpg" alt="Fofa Toba Excitante 15ml" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Fofa Toba Excitante 15ml</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Fofa%20Toba%20Excitante%2015ml', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/302810/Plug_Anal__Qq1041__Tamanho_P_M_653.jpg?v=639039047690400000" alt="Plug Anal Coração" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Plug Anal Coração</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Plug%20Anal%20Cora%C3%A7%C3%A3o', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/302809/Plug_Anal_Qq1041_Tamanho_P_Meg_255.jpg?v=639039047691500000" alt="Plug Anal P" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Plug Anal P</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Plug%20Anal%20P', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Anéis Penianos</h2>
-                <span class="category-count">1 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/16963621759981_thumb.jpg" alt="Anel Vibrador Bichinho" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Anel Vibrador Bichinho</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Anel%20Vibrador%20Bichinho', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Aromáticos</h2>
-                <span class="category-count">2 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/298545/Perfume_De_Calcinha_Beijavel_B_131.jpg?v=638544923390170000" alt="Perfume de Calcinha Beijável 40ml" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Perfume de Calcinha Beijável 40ml</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Perfume%20de%20Calcinha%20Beij%C3%A1vel%2040ml', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17073085005707_thumb.jpg" alt="Power Kiss Jatos" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Power Kiss Jatos</h3>
-                        <p class="product-description"></p>
-                        <div class="product-specs">
-                            <span class="spec-tag">Black Ice</span><span class="spec-tag">Cereja</span>
-                            
-                        </div>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Power%20Kiss%20Jatos', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Bolinhas</h2>
-                <span class="category-count">3 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458878793_thumb.jpg" alt="Bolinha Mágica" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Bolinha Mágica</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Bolinha%20M%C3%A1gica', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458855423_thumb.jpg" alt="Sexy Ball Bolinha" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Sexy Ball Bolinha</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Sexy%20Ball%20Bolinha', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17073085005707_thumb.jpg" alt="Six Ball Mamba Negra 6un" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Six Ball Mamba Negra 6un</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Six%20Ball%20Mamba%20Negra%206un', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Bolinhas Funcionais</h2>
-                <span class="category-count">5 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/304747/Bolinha_Beijavel_Yummy_Sexy_Fa_696.jpg?v=638881048773900000" alt="Bolinha Beijável Yummy" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Bolinha Beijável Yummy</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Bolinha%20Beij%C3%A1vel%20Yummy', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/296778/Bolinha_Satisfaction_Duo_Sensa_848.jpg?v=638499978725470000" alt="Bolinha Satisfaction Duo 2un" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Bolinha Satisfaction Duo 2un</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Bolinha%20Satisfaction%20Duo%202un', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/296778/Bolinha_Satisfaction_Duo_Sensa_848.jpg?v=638499978725470000" alt="Bolinha Satisfaction Segredos 2un" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Bolinha Satisfaction Segredos 2un</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Bolinha%20Satisfaction%20Segredos%202un', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17073085005707_thumb.jpg" alt="Six Ball Black Ice 6un" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Six Ball Black Ice 6un</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Six%20Ball%20Black%20Ice%206un', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458878793_thumb.jpg" alt="Triple Shock Bolinhas 3un" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Triple Shock Bolinhas 3un</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Triple%20Shock%20Bolinhas%203un', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Estimuladores Masculinos</h2>
-                <span class="category-count">1 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/331009/Masturbador_Egg_Magical_Kiss_M_885.png?v=638997558769600000" alt="Egg Sensual Love" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Egg Sensual Love</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Egg%20Sensual%20Love', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Estimulantes Orais</h2>
-                <span class="category-count">1 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/309680/Energetico_Afrodisaco_Tesao_De_686.jpg?v=638725373535970000" alt="Gotas Afrodisíacas 20ml" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Gotas Afrodisíacas 20ml</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Gotas%20Afrodis%C3%ADacas%2020ml', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Géis Excitantes</h2>
-                <span class="category-count">3 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395022760_thumb.jpg" alt="Creme Gel Virilha 240ml" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Creme Gel Virilha 240ml</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Creme%20Gel%20Virilha%20240ml', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395069721_thumb.jpg" alt="Gel Glow Virilha 250ml" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Gel Glow Virilha 250ml</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Gel%20Glow%20Virilha%20250ml', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17072385076057_thumb.jpg" alt="Kuloko Gel Excitante 15g" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Kuloko Gel Excitante 15g</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Kuloko%20Gel%20Excitante%2015g', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Higiene Íntima</h2>
-                <span class="category-count">1 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://decoims.com/image?src=sexshopatacadao%2Fadb980fe-a404-4da0-8b0c-419baf8fabdb%2Fmigrated-3328-c3136674-0236-4972-ba44-59f53e2b9886.webp&quality=original&fit=cover" alt="Sabonete Íntimo Babaloob 150ml" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Sabonete Íntimo Babaloob 150ml</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Sabonete%20%C3%8Dntimo%20Babaloob%20150ml', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Lingeries</h2>
-                <span class="category-count">1 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/310594/Calcinha_Tailandesa_Com_Regula_106.jpg?v=638756793424700000" alt="Calcinha Tailandesa" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Calcinha Tailandesa</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Calcinha%20Tailandesa', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Lubrificantes</h2>
-                <span class="category-count">5 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17725395022760_thumb.jpg" alt="Lubrificante Fresh 30ml" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Lubrificante Fresh 30ml</h3>
-                        <p class="product-description"></p>
-                        <div class="product-specs">
-                            <span class="spec-tag">Menta</span><span class="spec-tag">Morango</span><span class="spec-tag">Tutti Frutti</span>
-                            
-                        </div>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Lubrificante%20Fresh%2030ml', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17598458859934_thumb.jpg" alt="Pop Ball Beijável" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Pop Ball Beijável</h3>
-                        <p class="product-description"></p>
-                        <div class="product-specs">
-                            <span class="spec-tag">Menta</span><span class="spec-tag">Uva</span>
-                            
-                        </div>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Pop%20Ball%20Beij%C3%A1vel', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17597766956219_thumb.jpg" alt="Pop Ball Hot Ice" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Pop Ball Hot Ice</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Pop%20Ball%20Hot%20Ice', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17597765221213_thumb.jpg" alt="Pop Ball Ice" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Pop Ball Ice</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Pop%20Ball%20Ice', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17098975099625_thumb.jpg" alt="Pop Lub Gel Corporal 60g" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Pop Lub Gel Corporal 60g</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Pop%20Lub%20Gel%20Corporal%2060g', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Próteses</h2>
-                <span class="category-count">3 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17794512895505_thumb.jpg" alt="Prótese Realista 15cm" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Prótese Realista 15cm</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Pr%C3%B3tese%20Realista%2015cm', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17794512832637_thumb.jpg" alt="Prótese Rosa Vibratória" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Prótese Rosa Vibratória</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Pr%C3%B3tese%20Rosa%20Vibrat%C3%B3ria', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17794512895505_thumb.jpg" alt="Pênis Aromático 14cm" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Pênis Aromático 14cm</h3>
-                        <p class="product-description"></p>
-                        <div class="product-specs">
-                            <span class="spec-tag">Menta</span><span class="spec-tag">Tangerina</span>
-                            
-                        </div>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20P%C3%AAnis%20Arom%C3%A1tico%2014cm', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="category">
-            <div class="category-header">
-                <h2 class="category-title">Vibradores</h2>
-                <span class="category-count">6 produtos</span>
-            </div>
-            <div class="product-grid">
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/310594/Calcinha_Tailandesa_Com_Regula_106.jpg?v=638756793424700000" alt="Fantasia Mini Bailarina" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Fantasia Mini Bailarina</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Fantasia%20Mini%20Bailarina', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://atacadaosexyshop.vtexassets.com/arquivos/ids/310596/Calcinha_Tailandesa_Com_Regula_904.jpg?v=638756793424870000" alt="Fantasia Mini Bombeira" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Fantasia Mini Bombeira</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Fantasia%20Mini%20Bombeira', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/categoria/17030783742867.png" alt="Slim Cone 57g" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Slim Cone 57g</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Slim%20Cone%2057g', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/categoria/16274904174308.png" alt="Slim Pingente" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Slim Pingente</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Slim%20Pingente', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17794512832637_thumb.jpg" alt="Vibrador Golfinho" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Vibrador Golfinho</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Vibrador%20Golfinho', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-                <div class="product-card">
-                    <div class="product-image-container">
-                        <img src="https://static.cdnlive.com.br/uploads/487/unidade/17794512832637_thumb.jpg" alt="Viuva Negra" class="product-image">
-                    </div>
-                    <div class="product-content">
-                        <h3 class="product-name">Viuva Negra</h3>
-                        <p class="product-description"></p>
-                        <button class="product-cta" onclick="window.open('https://wa.me/?text=Eu%20quero%21%20Viuva%20Negra', '_blank')">Eu quero</button>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="bar">
+  <div class="wrap">
+    <div class="bar-in">
+      <label class="search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Buscar produto…" autocomplete="off" aria-label="Buscar produto" />
+      </label>
+      <label class="switch" title="Itens sem estoque aparecem como “sob encomenda”">
+        <input type="checkbox" id="onlyReady" /> só prontos para enviar
+      </label>
+      <span class="count" id="count"></span>
     </div>
+    <div class="chips" id="cats"></div>
+  </div>
+</div>
+
+<main class="wrap">
+  <section class="sect" id="resellerSect" hidden>
+    <div class="sect-h"><h2>Revendedoras</h2><span>toque para ver só o que elas têm · ou fale direto</span></div>
+    <div class="rgrid" id="resellers"></div>
+  </section>
+
+  <section class="sect">
+    <div class="sect-h"><h2>Produtos</h2><span id="sectSub"></span></div>
+    <div class="grid" id="grid">
+      <div class="skel"></div><div class="skel"></div><div class="skel"></div>
+    </div>
+    <div class="empty" id="empty" hidden>Nenhum produto com esse filtro. <button class="mini" onclick="Cat.reset()">limpar filtros</button></div>
+  </section>
+</main>
+
+<footer class="work">
+  <div class="wrap">
+    <h2>Trabalhe conosco</h2>
+    <p>Quer revender com a gente, ter prioridade nos lançamentos e montar seu kit? Chame no WhatsApp.</p>
+    <a class="cta" id="workLink" href="#" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 00-8.5 15.2L2 22l4.9-1.4A10 10 0 1012 2zm5.6 14.1c-.3.7-1.5 1.3-2.1 1.3-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3.1-1.3-5.1-4.4-5.3-4.6-.1-.2-1.2-1.5-1.2-2.9s.7-2 .9-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.4.2.5.7 1.7.8 1.8.1.1.1.3 0 .4-.3.6-.5.7-.7 1.1-.2.3-.4.4-.2.7.5 1 1.1 1.7 2 2.3.3.2.5.2.7 0 .2-.2.7-.8.9-1.1.2-.3.4-.2.6-.1.3.1 1.7.8 2 .9.3.1.5.2.5.4.1.1.1.7-.1 1.3z"/></svg>
+      Falar com a CEO-Jéssica
+    </a>
+    <div class="legal" id="legal"></div>
+  </div>
+</footer>
+
+<div class="veil" id="veil" onclick="Cat.closeSheet()"></div>
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="sheet-h"><h3 id="sheetTitle">Falar sobre o produto</h3><p id="sheetSub"></p></div>
+  <div class="sheet-body" id="sheetBody"></div>
+  <div class="sheet-f"><button class="cancel" onclick="Cat.closeSheet()">voltar</button></div>
+</div>
+
+<script>
+/* Catálogo público — 100% alimentado por GET /api/public/catalog.
+ * Regras de exibição pedidas pela CEO: sem preço em lugar nenhum; quem tem o item em
+ * mãos é contatada pelo WhatsApp; o que está no estoque dela vai para o contato da
+ * CEO-Jéssica; item indisponível continua na vitrine como "sob encomenda" e a cliente
+ * escolhe com quem encomendar (qualquer revendedora ativa ou a própria CEO). */
+var DATA = { products: [], resellers: [], contact: {}, categories: [] };
+var UI = { query: '', category: 'Todas', resellerId: null, onlyReady: false };
+
+var WA_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 00-8.5 15.2L2 22l4.9-1.4A10 10 0 1012 2zm5.6 14.1c-.3.7-1.5 1.3-2.1 1.3-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3.1-1.3-5.1-4.4-5.3-4.6-.1-.2-1.2-1.5-1.2-2.9s.7-2 .9-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.4.2.5.7 1.7.8 1.8.1.1.1.3 0 .4-.3.6-.5.7-.7 1.1-.2.3-.4.4-.2.7.5 1 1.1 1.7 2 2.3.3.2.5.2.7 0 .2-.2.7-.8.9-1.1.2-.3.4-.2.6-.1.3.1 1.7.8 2 .9.3.1.5.2.5.4.1.1.1.7-.1 1.3z"/></svg>';
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/** Link do WhatsApp. Sem número cadastrado, cai no wa.me genérico: o cliente escolhe o
+ * contato no próprio app em vez de encontrar uma página de erro. */
+function waLink(whatsapp, message) {
+  var base = whatsapp ? 'https://wa.me/' + String(whatsapp).replace(/\D/g, '') : 'https://wa.me/';
+  return base + '?text=' + encodeURIComponent(message);
+}
+
+function productMessage(greeting, productName, mode) {
+  var hi = 'Oi ' + (greeting || 'tudo bem') + '! Me interessei no produto ' + productName;
+  return mode === 'encomenda' ? hi + ' — posso encomendar com você?' : hi;
+}
+
+/** Quem pode entregar. O nome do contato do estoque já vem configurado como o da
+ * atendente (CEO-Jéssica), então não aparece a palavra "depósito" para a cliente. */
+function holdersLabel(p) {
+  var n = (p.holders || []).map(function (h) { return h.name; });
+  if (!n.length) return '';
+  if (n.length === 1) return 'Pronto com ' + n[0];
+  if (n.length === 2) return 'Pronto com ' + n[0] + ' e ' + n[1];
+  if (n.length === 3) return 'Pronto com ' + n[0] + ', ' + n[1] + ' e ' + n[2];
+  return 'Pronto com ' + n[0] + ' e mais ' + (n.length - 1) + ' contatos';
+}
+
+function visibleProducts() {
+  var q = UI.query.trim().toLowerCase();
+  return DATA.products.filter(function (p) {
+    if (UI.onlyReady && !p.available) return false;
+    if (UI.category !== 'Todas' && p.category !== UI.category) return false;
+    if (UI.resellerId && !p.holders.some(function (h) { return h.reseller_id === UI.resellerId; })) return false;
+    if (!q) return true;
+    return (p.name + ' ' + p.category + ' ' + p.description).toLowerCase().indexOf(q) >= 0;
+  });
+}
+
+function cardHtml(p, index) {
+  var inner = p.photo_url
+    ? '<img src="' + esc(p.photo_url) + '" alt="' + esc(p.name) + '" loading="lazy" onerror="noPhoto(this)" />'
+    : '<span>foto<br />em breve</span>';
+  var badges = '<span class="badge ' + (p.available ? '' : 'no') + '"><span class="dot' + (p.available ? '' : ' off') + '"></span>'
+             + (p.available ? 'pronto para enviar' : 'sob encomenda') + '</span>'
+             + '<span class="cat">' + esc(p.category) + '</span>';
+  var thumb = '<div class="ph' + (p.photo_url ? '' : ' nophoto') + '">' + inner + badges + '</div>';
+  var desc = p.description
+    ? '<p class="desc">' + esc(p.description) + '</p>'
+    : '<p class="desc empty">Descrição e detalhes no WhatsApp com quem entrega.</p>';
+  var cta;
+  if (p.available && p.holders.length === 1) {
+    var h = p.holders[0];
+    cta = '<a class="cta" href="' + esc(waLink(h.whatsapp, productMessage(h.greeting || h.name, p.name, 'pronto'))) + '" target="_blank" rel="noopener">' + WA_ICON + 'Pedir pelo WhatsApp</a>';
+  } else if (p.available) {
+    cta = '<button class="cta" onclick="Cat.openSheet(' + index + ',\'pronto\')">' + WA_ICON + 'Falar com quem tem</button>';
+  } else {
+    cta = '<button class="cta alt" onclick="Cat.openSheet(' + index + ',\'encomenda\')">Encomendar</button>';
+  }
+  var who = p.available ? holdersLabel(p) : 'Escolha com quem encomendar';
+  return '<article class="card" style="animation-delay:' + Math.min(index * 18, 260) + 'ms">' + thumb
+       + '<div class="body"><h3 class="name">' + esc(p.name) + '</h3>' + desc
+       + '<div class="who">' + esc(who) + '</div><div class="acts">' + cta + '</div></div></article>';
+}
+
+/** Foto que quebra (CDN fora do ar, link antigo) não deixa ícone quebrado na vitrine. */
+function noPhoto(img) {
+  var ph = img.parentNode;
+  ph.classList.add('nophoto');
+  ph.innerHTML = '<span>foto<br />em breve</span>';
+}
+
+function resellerCardHtml(r) {
+  var msg = 'Oi ' + (r.greeting || r.name) + '! Vi o catálogo da ' + DATA.brand + ' e quero ver os produtos. Pode me ajudar?';
+  return '<div class="rcard' + (UI.resellerId === r.id ? ' sel' : '') + '">'
+    + '<div class="avatar">' + esc((r.name || '?').trim().charAt(0).toUpperCase()) + '</div>'
+    + '<div class="rmeta"><div class="rname">' + esc(r.name) + '</div>'
+    + '<div class="rsub">' + r.products_available + ' produto' + (r.products_available === 1 ? '' : 's') + ' pronto' + (r.products_available === 1 ? '' : 's') + '</div></div>'
+    + '<div class="racts">'
+    + '<button class="mini" data-reseller="' + r.id + '">' + (UI.resellerId === r.id ? 'vendo todos' : 'ver dela') + '</button>'
+    + '<a class="mini wa" href="' + esc(waLink(r.whatsapp, msg)) + '" target="_blank" rel="noopener">WhatsApp</a>'
+    + '</div></div>';
+}
+
+function renderChips() {
+  var cats = ['Todas'].concat(DATA.categories || []);
+  var ready = {};
+  for (var i = 0; i < DATA.products.length; i++) {
+    var p = DATA.products[i];
+    ready[p.category] = (ready[p.category] || 0) + (p.available ? 1 : 0);
+  }
+  document.getElementById('cats').innerHTML = cats.map(function (c) {
+    var n = c === 'Todas' ? DATA.products.length : DATA.products.filter(function (p) { return p.category === c; }).length;
+    return '<button class="chip' + (UI.category === c ? ' on' : '') + '" data-cat="' + esc(c) + '">'
+         + esc(c) + ' <span style="opacity:.6">' + n + '</span></button>';
+  }).join('');
+}
+
+function render() {
+  var grid = document.getElementById('grid');
+  var list = visibleProducts();
+  var withIdx = [];
+  for (var i = 0; i < list.length; i++) withIdx.push([list[i], DATA.products.indexOf(list[i])]);
+  grid.innerHTML = withIdx.map(function (pair) { return cardHtml(pair[0], pair[1]); }).join('');
+  document.getElementById('empty').hidden = list.length > 0;
+  var ready = list.filter(function (p) { return p.available; }).length;
+  document.getElementById('count').textContent = list.length + ' produto' + (list.length === 1 ? '' : 's')
+    + (list.length ? ' · ' + ready + ' pronto' + (ready === 1 ? '' : 's') : '');
+  document.getElementById('sectSub').textContent = UI.resellerId
+    ? 'filtrando por ' + (DATA.resellers.find(function (r) { return r.id === UI.resellerId; }) || {}).name
+    : (UI.category === 'Todas' ? '' : UI.category);
+}
+
+function renderResellers() {
+  var withStock = (DATA.resellers || []).filter(function (r) { return r.products_available > 0; });
+  document.getElementById('resellerSect').hidden = withStock.length === 0;
+  document.getElementById('resellers').innerHTML = withStock.map(resellerCardHtml).join('');
+}
+
+function openSheet(index, mode) {
+  var p = DATA.products[index];
+  var opts = mode === 'pronto' ? p.holders : DATA.resellers.map(function (r) {
+    return { kind: 'revendedora', reseller_id: r.id, name: r.name, greeting: r.greeting, whatsapp: r.whatsapp, products_available: r.products_available };
+  }).concat(DATA.contact && DATA.contact.label ? [{
+    kind: 'estoque', name: DATA.contact.label, greeting: DATA.contact.greeting, whatsapp: DATA.contact.whatsapp, products_available: null,
+  }] : []);
+  document.getElementById('sheetTitle').textContent = mode === 'pronto' ? 'Com quem você quer falar' : 'Escolha com quem encomendar';
+  document.getElementById('sheetSub').textContent = p.name + (mode === 'pronto' ? ' — pronto para enviar' : ' — sob encomenda');
+  document.getElementById('sheetBody').innerHTML = opts.map(function (h) {
+    var msg = productMessage(h.greeting || h.name, p.name, mode === 'pronto' ? 'pronto' : 'encomenda');
+    var tag = h.kind === 'estoque'
+      ? (mode === 'pronto' ? 'pronta no estoque · entrega a combinar' : 'encomenda direto com a empresa')
+      : (mode === 'pronto' ? 'com ela, pronta para entregar'
+         : (h.products_available ? h.products_available + ' produtos prontos com ela' : 'anota sua encomenda'));
+    return '<a class="opt" href="' + esc(waLink(h.whatsapp, msg)) + '" target="_blank" rel="noopener">'
+      + '<div class="avatar">' + esc((h.name || '?').trim().charAt(0).toUpperCase()) + '</div>'
+      + '<div class="rmeta"><div class="rname">' + esc(h.name) + '</div><div class="tag">' + esc(tag) + '</div></div>'
+      + '<div class="go">abrir ›</div></a>';
+  }).join('');
+  document.getElementById('veil').classList.add('on');
+  document.getElementById('sheet').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSheet() {
+  document.getElementById('veil').classList.remove('on');
+  document.getElementById('sheet').classList.remove('on');
+  document.body.style.overflow = '';
+}
+
+function setLive(text, on) {
+  document.getElementById('liveTxt').textContent = text;
+  document.getElementById('liveDot').className = 'dot' + (on ? '' : ' off');
+}
+
+function renderAll() { renderChips(); renderResellers(); render(); }
+
+function applyWorkLink() {
+  var c = DATA.contact || {};
+  document.getElementById('workLink').href = waLink(c.whatsapp, c.work_with_us_message || 'Tenho interesse em fazer parte da equipe');
+  if (c.label) {
+    var t = document.getElementById('workLink');
+    t.lastChild.textContent = ' Falar com a ' + c.label;
+  }
+}
+
+async function load() {
+  try {
+    var r = await fetch('/api/public/catalog', { headers: { accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var d = await r.json();
+    if (!d.enabled) {
+      document.getElementById('grid').innerHTML = '<div class="notice" style="grid-column:1/-1"><b>Catálogo temporariamente fechado.</b><br>Volte em breve para ver as novidades.</div>';
+      document.getElementById('resellerSect').hidden = true;
+      setLive('fora do ar', false);
+      return;
+    }
+    DATA = d;
+    setLive('atualizado às ' + new Date(d.generated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), true);
+    if (d.brand) {
+      document.getElementById('heroTitle').innerHTML = 'Catálogo <em>' + esc(d.brand) + '</em>';
+      document.getElementById('legal').textContent = d.brand + ' — catálogo de produtos. Preços, combinações e entrega são combinados no WhatsApp.';
+    }
+    document.getElementById('heroSub').textContent = 'Veja o que está disponível agora e fale direto no WhatsApp de quem tem o produto em mãos. Preço e combinações: só no WhatsApp.';
+    applyWorkLink();
+    renderAll();
+  } catch (e) {
+    setLive('fora do ar', false);
+    document.getElementById('grid').innerHTML = '<div class="notice" style="grid-column:1/-1"><b>Não consegui carregar o catálogo.</b><br>'
+      + esc(e.message) + ' — <button class="mini" onclick="location.reload()">tentar de novo</button></div>';
+  }
+}
+
+function pickCategory(c) { UI.category = c; renderChips(); render(); }
+function pickReseller(id) { UI.resellerId = UI.resellerId === id ? null : id; renderResellers(); render(); }
+
+document.addEventListener('DOMContentLoaded', function () {
+  document.getElementById('q').addEventListener('input', function (ev) { UI.query = ev.target.value; render(); });
+  document.getElementById('cats').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-cat]'); if (b) pickCategory(b.getAttribute('data-cat'));
+  });
+  document.getElementById('resellers').addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-reseller]'); if (b) pickReseller(Number(b.getAttribute('data-reseller')));
+  });
+  document.getElementById('onlyReady').addEventListener('change', function (ev) { UI.onlyReady = ev.target.checked; render(); });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeSheet(); });
+  load();
+});
+
+/* exposto para permitir teste das funções puras sem browser */
+var Cat = { openSheet: openSheet, closeSheet: closeSheet, pickCategory: pickCategory, pickReseller: pickReseller, reset: function () {
+  UI = { query: '', category: 'Todas', resellerId: null, onlyReady: false };
+  document.getElementById('q').value = ''; document.getElementById('onlyReady').checked = false; renderAll();
+}, waLink: waLink, productMessage: productMessage, holdersLabel: holdersLabel, visibleProducts: visibleProducts, _state: function () { return { UI: UI, DATA: DATA }; } };
+</script>
 </body>
 </html>

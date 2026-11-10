@@ -468,16 +468,58 @@ async function renderDashboard() {
       }).join('') : '<div class="empty">Sem atividade ainda.</div>') + 
       '</div>';
     
-    v.innerHTML = cardsHtml + alertsHtml + chartsHtml + lowStockHtml + activityHtml;
+    // Vitrine pública (catálogo da cliente final) — só a CEO configura
+    var catalogHtml = (S.user.role === 'ceo') ? '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">🌐 Catálogo público <span style="font-weight:400;font-size:11px;color:var(--t3)">— vitrine da cliente, sem preço</span></div><div id="catBox" class="empty">Carregando…</div></div>' : '';
+
+    v.innerHTML = cardsHtml + alertsHtml + chartsHtml + lowStockHtml + catalogHtml + activityHtml;
     
     // Renderizar gráficos após o HTML estar no DOM
     setTimeout(function() {
       renderCharts(charts);
+      loadCatalogPanel();
     }, 100);
     
   } catch(e) { 
     v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; 
   }
+}
+
+/** Painel do catálogo público: liga/desliga a vitrine e define o contato do estoque.
+ * O catálogo em si é a página /catalogo, alimentada por GET /api/public/catalog. */
+function loadCatalogPanel() {
+  var box = document.getElementById('catBox');
+  if (!box || !S.user || S.user.role !== 'ceo') return;
+  api('/api/admin/catalog-settings').then(function (d) {
+    var st = d.settings || {}, pv = d.preview || {};
+    var prods = pv.products || [];
+    var ready = prods.filter(function (p) { return p.available; }).length;
+    var withStock = (pv.resellers || []).filter(function (r) { return r.products_available > 0; });
+    box.innerHTML = '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px">' +
+      '<div class="ig" style="flex:1;min-width:150px;margin-bottom:0"><label>Nome de contato do estoque</label><input id="catLabel" value="' + esc(st.contact_label || '') + '" placeholder="CEO-Jéssica" /></div>' +
+      '<div class="ig" style="flex:1;min-width:150px;margin-bottom:0"><label>WhatsApp (com DDD)</label><input id="catWa" value="' + esc(st.contact_whatsapp || '') + '" placeholder="(16) 99999-9999" /></div>' +
+      '<label class="ig" style="display:flex;align-items:center;gap:7px;margin-bottom:0;min-width:140px;font-size:13px;cursor:pointer;text-align:left">' +
+        '<input type="checkbox" id="catOn" style="width:auto;margin:0" ' + (st.enabled ? 'checked' : '') + ' /><span style="text-transform:none;letter-spacing:0;font-size:13px;color:var(--t1)">catálogo no ar</span></label>' +
+      '<button class="btn-s" style="background:var(--sc);color:var(--bg)" onclick="saveCatalogSettings()">salvar</button>' +
+      '<a class="btn-s" href="/catalogo" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">abrir catálogo ↗</a>' +
+      '</div>' +
+      '<div class="il"><span>Produtos na vitrine</span><span>' + prods.length + ' · ' + ready + ' prontos para enviar</span></div>' +
+      '<div class="il"><span>Revendedoras com produto pronto</span><span>' + (withStock.length ? withStock.map(function (r) { return esc(r.name) + ' (' + r.products_available + ')'; }).join(' · ') : 'nenhuma no momento') + '</span></div>' +
+      '<div class="il"><span>Contato do estoque</span><span>' + (st.contact_whatsapp ? esc(st.contact_whatsapp) : '<span style="color:var(--dg)">sem número — a cliente cairia no WhatsApp genérico</span>') + '</span></div>' +
+      (st.updated_at ? '<div class="il"><span>Última alteração</span><span style="color:var(--t3);font-size:11px">' + esc(st.updated_at) + '</span></div>' : '');
+  }).catch(function (e) {
+    box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  });
+}
+
+function saveCatalogSettings() {
+  api('/api/admin/catalog-settings', { method: 'POST', body: JSON.stringify({
+    enabled: document.getElementById('catOn').checked,
+    contact_label: document.getElementById('catLabel').value,
+    contact_whatsapp: document.getElementById('catWa').value,
+  }) }).then(function () {
+    toast('Configurações do catálogo salvas', 'ok');
+    loadCatalogPanel();
+  }).catch(function (e) { toast('Não salvou: ' + e.message, 'err'); });
 }
 
 function renderCharts(charts) {
