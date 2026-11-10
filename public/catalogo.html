@@ -224,9 +224,9 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <div class="wrap">
     <h2>Trabalhe conosco</h2>
     <p>Quer revender com a gente, ter prioridade nos lançamentos e montar seu kit? Chame no WhatsApp.</p>
-    <a class="cta" id="workLink" href="#" rel="noopener">
+    <a class="cta" id="workLink" href="#" target="_blank" rel="noopener">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 00-8.5 15.2L2 22l4.9-1.4A10 10 0 1012 2zm5.6 14.1c-.3.7-1.5 1.3-2.1 1.3-.5.1-1.2.1-1.9-.1-.4-.1-1-.3-1.8-.6-3.1-1.3-5.1-4.4-5.3-4.6-.1-.2-1.2-1.5-1.2-2.9s.7-2 .9-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.4.2.5.7 1.7.8 1.8.1.1.1.3 0 .4-.3.6-.5.7-.7 1.1-.2.3-.4.4-.2.7.5 1 1.1 1.7 2 2.3.3.2.5.2.7 0 .2-.2.7-.8.9-1.1.2-.3.4-.2.6-.1.3.1 1.7.8 2 .9.3.1.5.2.5.4.1.1.1.7-.1 1.3z"/></svg>
-      Falar com a CEO-Jéssica
+      Falar no WhatsApp
     </a>
     <div class="legal" id="legal"></div>
   </div>
@@ -496,11 +496,12 @@ function renderSheet() {
 
 function applyWorkLink() {
   var c = DATA.contact || {};
-  document.getElementById('workLink').href = waLink(c.whatsapp, c.work_with_us_message || 'Tenho interesse em fazer parte da equipe');
-  if (c.label) {
-    var t = document.getElementById('workLink');
-    t.lastChild.textContent = ' Falar com a ' + c.label;
-  }
+  var t = document.getElementById('workLink');
+  var tel = String(c.whatsapp || '').replace(/\D/g, '');
+  t.href = waLink(tel, c.work_with_us_message || 'Tenho interesse em fazer parte da equipe');
+  // Sem número no painel, o wa.me abre o WhatsApp sem destinatário. O rótulo não pode
+  // prometer "falar com a CEO" quando não há para quem mandar a mensagem.
+  t.lastChild.textContent = tel.length >= 10 ? ' Falar com a ' + (c.label || 'CEO') : ' Falar no WhatsApp';
 }
 
 function availabilityMap(d) {
