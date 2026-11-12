@@ -438,3 +438,22 @@ test('queridinhos: no máximo 5 na vitrine, produto inativo fica fora e a assina
   sale(kit, ids[6], 3);
   assert.notEqual(catalog.catalogVersion(), ver, 'venda nova muda a assinatura, e a cliente atualiza sem F5');
 });
+
+test('revendedora ativa sem kit continua na lista da vitrine (o nome dela é um contato, não só uma prateleira)', () => {
+  makeCeo();
+  const comKit = reseller('Ana Com Kit');
+  const semKit = reseller('Beta Sem Kit');
+  const prod = product('Produto Da Ana');
+  deliveredKit(comKit, prod.id, 2);
+
+  const out = catalog.publicPayload();
+  const a = out.resellers.find((r) => r.name === 'Ana Com Kit');
+  const b = out.resellers.find((r) => r.name === 'Beta Sem Kit');
+  assert.equal(a.products_available, 1, 'quem tem kit mostra a contagem');
+  assert.ok(b, 'quem está sem kit continua na lista');
+  assert.equal(b.products_available, 0, 'com contagem zero — é o que a página usa para a observação');
+  assert.ok(b.whatsapp && b.whatsapp.startsWith('55'), 'e o contato dela chega normalmente');
+
+  db.prepare("UPDATE resellers SET status = 'inativa' WHERE id = ?").run(semKit);
+  assert.ok(!catalog.publicPayload().resellers.some((r) => r.name === 'Beta Sem Kit'), 'inativa, aí sim, some');
+});
