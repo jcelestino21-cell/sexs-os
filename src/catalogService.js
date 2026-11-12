@@ -190,7 +190,15 @@ function catalogVersion() {
       (SELECT COALESCE(MAX(ks.id), 0) FROM kit_sales ks
          JOIN kit_items ki ON ki.id = ks.kit_item_id
          JOIN kits k ON k.id = ki.kit_id AND k.status = 'entregue'
-         JOIN resellers r ON r.id = k.reseller_id AND r.status = 'ativa') AS ks_max
+         JOIN resellers r ON r.id = k.reseller_id AND r.status = 'ativa') AS ks_max,
+      -- os "queridinhos" saem do mesmo histórico, mas contam as vendas informadas
+      -- também; sem isto a faixa poderia trocar na tela da cliente sem o ETag mudar
+      (SELECT COALESCE(SUM(kqs.quantity), 0) FROM kit_sales kqs
+         JOIN kit_items ki ON ki.id = kqs.kit_item_id
+         JOIN products p ON p.id = ki.product_id AND p.active = 1
+        WHERE kqs.status IN ('informada', 'confirmada')) AS hot_units,
+      (SELECT COALESCE(MAX(kqs.id), 0) FROM kit_sales kqs
+        WHERE kqs.status IN ('informada', 'confirmada')) AS hot_max
   `).get();
   const shown = db.prepare(`
     SELECT 'P' || id || '|' || name || '|' || COALESCE(category, '') || '|' || COALESCE(description, '')
@@ -208,7 +216,10 @@ function catalogVersion() {
       FROM catalog_settings WHERE id = 1
   `).get();
   const marca = db.prepare("SELECT COALESCE(trade_name, '') || '|' || COALESCE(legal_name, '') AS t FROM company_settings WHERE id = 1").get();
-  const bruto = [Object.keys(agg).map((k) => `${k}=${agg[k]}`).join('.'), shown, contatos, (st && st.t) || '', (marca && marca.t) || ''].join('#');
+  // O dia entra na conta porque a janela de 60 dias vira sozinha: sem isto, uma cliente
+  // com a página aberta por dias mostraria um ranking de ontem para sempre.
+  const bruto = [Object.keys(agg).map((k) => `${k}=${agg[k]}`).join('.'), shown, contatos, (st && st.t) || '', (marca && marca.t) || '',
+                 new Date().toISOString().slice(0, 10)].join('#');
   return crypto.createHash('sha256').update(bruto).digest('hex').slice(0, 32);
 }
 
@@ -238,6 +249,57 @@ function depotQuantities() {
   return out;
 }
 
+/* ---------------------------------------------------------------------------
+ * "Queridinhos do momento" — a vitrine mostra os 5 produtos que MAIS SAÍRAM.
+ *
+ * De onde vem o número: do histórico de vendas das revendedoras, não de palpite.
+ * Cada venda registrada num kit (kit_sales) conta as unidades daquele produto:
+ *  - status 'informada' (a revendedora lançou) e 'confirmada' (a CEO conferiu)
+ *    entram — é isso que dá a sensação de "atualiza sozinho conforme sai";
+ *  - 'rejeitada' fica de fora de propósito: é exatamente como o estorno de venda
+ *    é registrado (o histórico é mantido para auditoria, mas para de contar no
+ *    ranking e no financeiro).
+ * Unidades, não reais: senão um produto caro aparece como "queridinho" só porque
+ * custa mais.
+ *
+ * Janela: os últimos QUERIDOS_DIAS dias — "do momento" quer dizer isso. Se a
+ * janela vier vazia (loja parada, sistema recém-começado), o ranking usa o
+ * histórico todo em vez de sumir com a seção; se ainda assim não houver venda
+ * nenhuma, a vitrine simplesmente não mostra a faixa.
+ *
+ * Desempate: quantas revendedoras diferentes venderam (querida por várias vale
+ * mais que 4 unidades na mão de uma só) e depois o nome, para a ordem ser
+ * estável entre duas atualizações.
+ * ------------------------------------------------------------------------- */
+const QUERIDOS_DIAS = 60;
+const QUERIDOS_MAX = 5;
+
+function queridinhosDoMomento() {
+  const consulta = `
+    SELECT ki.product_id AS product_id,
+           SUM(ks.quantity) AS units,
+           COUNT(DISTINCT k.reseller_id) AS fans,
+           MAX(ks.created_at) AS last_at
+      FROM kit_sales ks
+      JOIN kit_items ki ON ki.id = ks.kit_item_id
+      JOIN kits k ON k.id = ki.kit_id
+      JOIN products p ON p.id = ki.product_id AND p.active = 1
+     WHERE ks.status IN ('informada', 'confirmada')
+       AND (? IS NULL OR ks.created_at >= datetime('now', ?))
+     GROUP BY ki.product_id
+     ORDER BY units DESC, fans DESC, p.name
+     LIMIT ?
+  `;
+  let itens = db.prepare(consulta).all(`-${QUERIDOS_DIAS} day`, `-${QUERIDOS_DIAS} day`, QUERIDOS_MAX);
+  let dias = QUERIDOS_DIAS;
+  if (!itens.length) {
+    dias = null;
+    itens = db.prepare(consulta).all(null, null, QUERIDOS_MAX);
+  }
+  return { dias, itens };
+}
+
+
 function publicPayload({ ignoreDisabled = false } = {}) {
   ensureTable();
   const settings = getSettings();
@@ -248,6 +310,9 @@ function publicPayload({ ignoreDisabled = false } = {}) {
   if (settings.enabled !== 1 && !ignoreDisabled) {
     return { ok: true, enabled: false, generated_at: new Date().toISOString(), brand: brandName };
   }
+
+  const hot = queridinhosDoMomento();
+  const hotRank = new Map(hot.itens.map((x, i) => [x.product_id, i + 1]));
 
   const depot = depotQuantities();
   const holdings = resellerHoldings();
@@ -288,6 +353,13 @@ function publicPayload({ ignoreDisabled = false } = {}) {
       description: (p.description || '').trim(),
       photo_url: fotoCensurada(p, settings) ? '' : (p.photo_url || '').trim(),
       censored: fotoCensurada(p, settings),
+      // Só os mais vendidos trazem isto; os demais nem ganham a chave (payload enxuto).
+      ...(() => {
+        const rank = hotRank.get(p.id);
+        if (!rank) return {};
+        const h = hot.itens[rank - 1];
+        return { hot: { rank, units: h.units, fans: h.fans, last_at: h.last_at } };
+      })(),
       available: holders.length > 0,
       holders,
     };
@@ -315,10 +387,11 @@ function publicPayload({ ignoreDisabled = false } = {}) {
       whatsapp: normalizeWhatsapp(settings.contact_whatsapp),
       work_with_us_message: settings.work_with_us_message,
     },
+    trending: { days: hot.dias, max: QUERIDOS_MAX },
     categories: [...new Set(items.map((i) => i.category))],
     resellers,
     products: items,
   };
 }
 
-module.exports = { getSettings, saveSettings, publicPayload, catalogVersion, normalizeWhatsapp, greetingName };
+module.exports = { getSettings, saveSettings, publicPayload, catalogVersion, normalizeWhatsapp, greetingName, queridinhosDoMomento };

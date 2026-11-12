@@ -52,6 +52,15 @@ function deliveredKit(resellerId, productId, inHand, { status = 'entregue' } = {
   return kitId;
 }
 
+/** Venda lançada no kit (é isso que alimenta o ranking "queridinhos do momento"). */
+function sale(kitId, productId, qty, { status = 'confirmada', daysAgo = 1 } = {}) {
+  const item = db.prepare('SELECT id FROM kit_items WHERE kit_id = ? AND product_id = ?').get(kitId, productId);
+  assert.ok(item, 'o kit precisa ter o produto');
+  db.prepare(`INSERT INTO kit_sales (kit_item_id, quantity, unit_price_cents, status, created_by, created_at)
+              VALUES (?,?,?,?,1,datetime('now', ?))`)
+    .run(item.id, qty, 2502, status, `-${daysAgo} day`);
+}
+
 function findProduct(payload, name) {
   return payload.products.find((p) => p.name === name);
 }
@@ -335,4 +344,97 @@ test('censura da vitrine: foto de prótese/plug não sai do servidor; consumíve
 
   catalog.saveSettings({ censored_categories: 'Próteses' }, ceo);
   assert.equal(productById(catalog.publicPayload(), gel.id).photo_url, 'https://fornecedores.com/gel.jpg', 'settings voltam ao padrão');
+});
+
+test('queridinhos do momento: a vitrine ranqueia pelo que saiu nas vendas das revendedoras', () => {
+  makeCeo();
+  const rA = reseller('Queri Ana');
+  const rB = reseller('Queri Beta');
+  const hit = product('Queridinho Top');
+  const meio = product('Meio Querido');
+  const esquecido = product('Ninguém Comprou');
+  const kitA = deliveredKit(rA, hit.id, 3);
+  const kitA2 = deliveredKit(rA, meio.id, 3);
+  const kitB = deliveredKit(rB, hit.id, 3);
+  const kitC = deliveredKit(rB, esquecido.id, 3);
+
+  sale(kitA, hit.id, 4);
+  sale(kitB, hit.id, 2);            // 6 unidades, em duas revendedoras diferentes
+  sale(kitA2, meio.id, 5);          // mais unidades, mas só numa revendedora
+  sale(kitC, esquecido.id, 0, { status: 'rejeitada' });
+
+  const out = catalog.publicPayload();
+  const p = findProduct(out, 'Queridinho Top');
+  assert.ok(p.hot, 'o mais vendido vem marcado');
+  assert.equal(p.hot.rank, 1);
+  assert.equal(p.hot.units, 6);
+  assert.equal(p.hot.fans, 2, 'duas revendedoras venderam');
+  assert.equal(findProduct(out, 'Meio Querido').hot.rank, 2, 'desempate: unidades primeiro');
+  assert.ok(!findProduct(out, 'Ninguém Comprou').hot, 'venda rejeitada (estorno) não conta nada');
+  assert.equal(out.trending.days, 60);
+
+  // o desempate por número de revendedoras é o que está documentado no serviço
+  const kitD = deliveredKit(rA, meio.id, 3);
+  sale(kitD, meio.id, 1);
+  const outro = product('Outro Com Duas');
+  const kitE = deliveredKit(rB, outro.id, 2);
+  const kitF = deliveredKit(rA, outro.id, 2);
+  sale(kitE, outro.id, 3);
+  sale(kitF, outro.id, 3);
+  const after = catalog.publicPayload();
+  assert.equal(after.products.find((x) => x.name === 'Outro Com Duas').hot.units, 6);
+  assert.equal(after.products.find((x) => x.name === 'Queridinho Top').hot.units, 6);
+  assert.ok(
+    after.products.find((x) => x.name === 'Outro Com Duas').hot.rank < after.products.find((x) => x.name === 'Queridinho Top').hot.rank,
+    'mesma quantidade: quem foi vendido por mais revendedoras fica na frente',
+  );
+});
+
+test('queridinhos: janela de 60 dias, com reserva para o histórico quando a loja está parada', () => {
+  makeCeo();
+  const r = reseller('Janela Rev');
+  const novo = product('Saiu Agora');
+  const velho = product('Vendeu Antigamente');
+  const k1 = deliveredKit(r, novo.id, 2);
+  const k2 = deliveredKit(r, velho.id, 2);
+  sale(k1, novo.id, 1, { daysAgo: 5 });
+  sale(k2, velho.id, 9, { daysAgo: 400 });
+
+  let out = catalog.publicPayload();
+  const saiu = out.products.find((x) => x.name === 'Saiu Agora');
+  assert.ok(saiu.hot && saiu.hot.units === 1, 'venda da janela conta, mesmo sendo 1 unidade só');
+  assert.ok(!out.products.find((x) => x.name === 'Vendeu Antigamente').hot, 'venda de 400 dias atrás não entra na janela, nem com 9 unidades');
+
+  db.prepare('DELETE FROM kit_sales').run();
+  sale(k2, velho.id, 9, { daysAgo: 400 });
+  out = catalog.publicPayload();
+  assert.ok(out.products.find((x) => x.name === 'Vendeu Antigamente').hot, 'sem venda recente, o histórico todo assume a faixa');
+  assert.equal(out.trending.days, null, 'e a vitrine diz que é histórico, não "últimos 60 dias"');
+
+  db.prepare('DELETE FROM kit_sales').run();
+  out = catalog.publicPayload();
+  assert.ok(out.products.every((x) => !x.hot), 'sem venda nenhuma, a faixa não tem o que mostrar');
+  assert.equal(out.trending.days, null);
+});
+
+test('queridinhos: no máximo 5 na vitrine, produto inativo fica fora e a assinatura acompanha a venda', () => {
+  makeCeo();
+  const r = reseller('Cinco Rev');
+  const ids = [];
+  for (let i = 1; i <= 7; i++) {
+    const prod = product(`Muito Vendido ${i}`);
+    ids.push(prod.id);
+    const kit = deliveredKit(r, prod.id, 2);
+    sale(kit, prod.id, 10 - i);
+  }
+  const out = catalog.publicPayload();
+  const marcados = out.products.filter((x) => x.hot);
+  assert.equal(marcados.length, 5, 'a faixa é de 5, não de 7');
+  assert.deepEqual(marcados.map((x) => x.hot.rank), [1, 2, 3, 4, 5]);
+  assert.ok(!marcados.some((x) => x.name === 'Muito Vendido 7'), 'o de menos unidade fica fora');
+
+  const ver = catalog.catalogVersion();
+  const kit = deliveredKit(r, ids[6], 2);
+  sale(kit, ids[6], 3);
+  assert.notEqual(catalog.catalogVersion(), ver, 'venda nova muda a assinatura, e a cliente atualiza sem F5');
 });

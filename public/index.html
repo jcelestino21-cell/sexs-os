@@ -504,6 +504,13 @@ function loadCatalogPanel() {
       '<a class="btn-s" href="/catalogo" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">abrir catálogo ↗</a>' +
       '</div>' +
       '<div class="il"><span>Produtos na vitrine</span><span>' + prods.length + ' · ' + ready + ' prontos para enviar</span></div>' +
+      '<div class="il"><span>Queridinhos do momento</span><span>' + (function () {
+        var hot = prods.filter(function (p) { return p.hot; }).sort(function (a, b) { return a.hot.rank - b.hot.rank; });
+        if (!hot.length) return 'sem venda registrada ainda — a faixa fica escondida na vitrine';
+        var dias = (pv.trending || {}).days;
+        return hot.length + ' na vitrine · ' + (dias ? 'contando os últimos ' + dias + ' dias' : 'histórico inteiro (nenhuma venda nos ' + 60 + ' dias)')
+          + ' — ' + hot.map(function (p) { return esc(p.name) + ' (' + p.hot.units + ')'; }).join(', ');
+      })() + '</span></div>' +
       '<div class="il"><span>Revendedoras com produto pronto</span><span>' + (withStock.length ? withStock.map(function (r) { return esc(r.name) + ' (' + r.products_available + ')'; }).join(' · ') : 'nenhuma no momento') + '</span></div>' +
       '<div class="il"><span>Cartões com foto censurada</span><span>' + (function () {
         var cen = prods.filter(function (p) { return p.censored; });

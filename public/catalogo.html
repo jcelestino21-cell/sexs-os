@@ -73,6 +73,21 @@ button.refresh.spin svg{animation:spin .8s linear infinite}
 .sect-h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
 .sect-h h2{font-size:21px}
 .sect-h span{font-size:12.5px;color:var(--txt2)}
+/* Queridinhos do momento: same moldura do card, faixa na horizontal com o nº na frente */
+.hot{padding-top:26px}
+.hot .hotrow{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(198px,1fr);gap:12px;overflow-x:auto;
+  padding:14px 2px 16px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+@media(min-width:960px){.hot .hotrow{grid-auto-flow:row;grid-template-columns:repeat(5,1fr);overflow:visible}}
+button.hotcard{position:relative;scroll-snap-align:start;border-color:rgba(255,47,157,.32);cursor:pointer;
+  text-align:left;color:inherit;font:inherit;padding:0;-webkit-appearance:none;appearance:none}
+button.hotcard:hover{border-color:var(--rose)}
+button.hotcard:focus-visible{outline:2px solid var(--rose);outline-offset:2px}
+.hotcard .rank{position:absolute;top:9px;right:9px;z-index:2;min-width:26px;height:26px;padding:0 7px;border-radius:999px;
+  background:var(--rose);color:#0b0b0d;font-weight:700;font-size:12.5px;display:grid;place-items:center;
+  box-shadow:0 4px 14px rgba(255,47,157,.4);font-family:'DM Sans',sans-serif}
+.hotcard .why{padding:0 12px 12px;font-size:12.5px;color:var(--rose-soft);margin:0}
+.hotcard .who{padding:0 12px}
+.hotcard .acts{padding:0 12px 12px;margin-top:auto}
 .rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:11px}
 .rcard{display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,var(--card),#15181c);border:1px solid var(--line);
   border-radius:16px;padding:12px}
@@ -207,6 +222,11 @@ button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(-
   <section class="sect" id="resellerSect" hidden>
     <div class="sect-h"><h2>Revendedoras</h2><span>toque para ver só o que elas têm · ou fale direto</span></div>
     <div class="rgrid" id="resellers"></div>
+  </section>
+
+  <section class="sect hot" id="hotSect" hidden>
+    <div class="sect-h"><h2 id="hotTitle">Queridinhos do momento</h2><span id="hotSub"></span></div>
+    <div class="hotrow" id="hotRow"></div>
   </section>
 
   <section class="sect">
@@ -371,6 +391,46 @@ function renderChips() {
   }).join('');
 }
 
+/** A faixa "queridinhos" vem pronta do servidor: é o histórico de vendas das revendedoras
+ * (unidades que saíram), não palpite. Cada produto ranqueado chega com hot.rank/units/fans. */
+function hotProducts() {
+  return (DATA.products || []).filter(function (p) { return p.hot; })
+    .sort(function (a, b) { return a.hot.rank - b.hot.rank; });
+}
+
+/** Durante um filtro da cliente a faixa some: "mais vendido de tudo" no meio de uma
+ * categoria filtrada mentiria sobre o que ela está vendo. */
+function hotApplies() {
+  return !UI.query.trim() && UI.category === 'Todas' && !UI.resellerId && !UI.onlyReady;
+}
+
+function hotCardHtml(p) {
+  var st = photoState(p);
+  var idx = DATA.products.indexOf(p);
+  var qtd = p.hot.units === 1 ? '1 unidade vendida' : p.hot.units + ' unidades vendidas';
+  var por = p.hot.fans > 1 ? ' · com ' + p.hot.fans + ' revendedoras' : '';
+  var badge = '<span class="badge ' + (p.available ? '' : 'no') + '"><span class="dot' + (p.available ? '' : ' off') + '"></span>'
+            + (p.available ? 'pronto para enviar' : 'sob encomenda') + '</span>';
+  return '<button type="button" class="card hotcard" data-pid="' + p.id + '" onclick="Cat.openSheet(' + idx + ',\'' + (p.available ? 'pronto' : 'encomenda') + '\')">'
+       + '<div class="ph' + (st.cls ? ' ' + st.cls : '') + '">' + st.html + badge + '<span class="rank">' + p.hot.rank + '</span></div>'
+       + '<div class="body"><h3 class="name">' + esc(p.name) + '</h3>'
+       + '<p class="why">' + qtd + por + '</p></div></button>';
+}
+
+function renderHot() {
+  var sect = document.getElementById('hotSect');
+  var lista = hotApplies() ? hotProducts() : [];
+  sect.hidden = lista.length === 0;
+  if (!lista.length) { document.getElementById('hotRow').innerHTML = ''; return; }
+  var dias = (DATA.trending || {}).days;
+  document.getElementById('hotTitle').textContent = lista.length === 1 ? 'O queridinho do momento'
+    : 'Os ' + lista.length + ' queridinhos do momento';
+  document.getElementById('hotSub').textContent = dias
+    ? 'pelo que mais saiu nos últimos ' + dias + ' dias · atualiza sozinho'
+    : 'pelo histórico de vendas das revendedoras · atualiza sozinho';
+  document.getElementById('hotRow').innerHTML = lista.map(hotCardHtml).join('');
+}
+
 function render() {
   var grid = document.getElementById('grid');
   var list = visibleProducts();
@@ -386,6 +446,7 @@ function render() {
   document.getElementById('sectSub').textContent = UI.resellerId
     ? 'filtrando por ' + (DATA.resellers.find(function (r) { return r.id === UI.resellerId; }) || {}).name
     : (UI.category === 'Todas' ? '' : UI.category);
+  renderHot();
 }
 
 function renderResellers() {
