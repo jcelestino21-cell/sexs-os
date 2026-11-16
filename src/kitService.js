@@ -919,7 +919,7 @@ function reverseSale({ kitSaleId, actorUser, note, asCeo = false }) {
 }
 
 module.exports = {
-  getKit, listKits, suggestKit, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
+  getKit, listKits, suggestKit, companyAvailableBalance, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
   informSale, decideSale, reverseSale, addDeliveredItem, reattributeItemToClosedKit, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
   getReconciliationDraft, saveReconciliationItem,
   rankingFull, rankingForReseller,

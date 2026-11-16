@@ -948,6 +948,13 @@ async function renderKits() {
       '</div>' +
       '</div>';
 
+    var planHtml = '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">🪄 Simular os kits (estoque primeiro, compra depois)</div>' +
+      '<div style="font-size:12px;color:var(--t2);margin-bottom:10px">Monta o plano de cada revendedora ativa com o que <em>já está no armazém</em> e joga para uma lista à parte o que <em>precisa comprar</em>. ' +
+      'Regra: o que ela pediu + o que ela vendeu no kit em aberto, sem repetir o que ela ainda tem parado na bolsa. Nada é reservado nem baixado aqui.</div>' +
+      '<label style="font-size:12px;color:var(--t2)"><input type="checkbox" id="planFill" checked /> completar o kit com o que cada uma mais vende</label> ' +
+      '<button class="btn-s" onclick="simularKits()">Gerar plano</button>' +
+      '<div id="planOut" style="margin-top:12px"></div></div>';
+
     var statusLabels = {sugerido:'⏳ Sugerido',aprovado:'✅ Aprovado',em_preparacao:'📦 Em preparação',entregue:'🚚 Entregue',aguardando_fechamento:'📋 Aguardando fechamento',encerrado:'🏁 Encerrado',rejeitado:'❌ Rejeitado'};
     
     // Alerta de solicitações de fechamento pendentes
@@ -983,8 +990,9 @@ async function renderKits() {
       kitsHtml = '<div class="panel"><div class="empty">Nenhum kit ainda. Sugira o primeiro acima! 📦</div></div>';
     }
 
-    v.innerHTML = suggestHtml + kitsHtml;
+    v.innerHTML = planHtml + suggestHtml + kitsHtml;
     renderKitItemsList();
+    if (window.KIT_PLAN) renderPlan();
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
 }
 
@@ -1086,6 +1094,103 @@ async function suggestKit() {
     kitItems = [];
     renderKits();
   } catch(e) { toast(e.message); }
+}
+
+var KIT_PLAN = null;
+
+function planMoney(c){ return 'R$ ' + (Number(c||0)/100).toFixed(2).replace('.',','); }
+
+async function simularKits() {
+  var out = $('#planOut'); if(!out) return;
+  out.innerHTML = '<div class="empty">Calculando com o estoque de agora…</div>';
+  var fill = ($('#planFill') && $('#planFill').checked) ? '1' : '0';
+  try {
+    KIT_PLAN = await api('/api/admin/kit-plan?fill=' + fill);
+    renderPlan();
+  } catch(e) { out.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+
+function renderPlan() {
+  var out = $('#planOut'); if(!out || !KIT_PLAN) return;
+  var h = '';
+  var al = KIT_PLAN.alertas || [];
+  if (al.length) {
+    h += '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 12px;margin-bottom:12px">';
+    al.forEach(function(a){
+      h += '<div style="font-size:12px;color:#856404;margin-bottom:6px"><strong>' + esc((a.tipo||'').replace(/_/g,' ')) + '.</strong> ' +
+           (Array.isArray(a.aviso) ? a.aviso : [a.aviso]).filter(Boolean).map(esc).join(' · ') + (a.porque ? '<div style="color:#856404;opacity:.85">' + esc(a.porque) + '</div>' : '') + '</div>';
+    });
+    h += '</div>';
+  }
+  (KIT_PLAN.plans||[]).forEach(function(p){
+    h += '<div style="border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px;background:var(--p2)">';
+    h += '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><strong>' + esc(p.reseller_name) + '</strong>' +
+         '<span style="font-size:12px;color:var(--t3)">' + p.totals.units + ' un. · ' + planMoney(p.totals.sale_value_cents) + ' de venda · ' +
+         p.totals.from_stock + ' saem do estoque · ' + p.totals.to_buy + ' para comprar</span></div>';
+    if (p.open_kit) h += '<div style="font-size:12px;color:var(--t3);margin-top:2px">kit #' + p.open_kit.kit_id + ' em aberto (' + esc(p.open_kit.status) +
+      ', ' + p.open_kit.em_maos + ' un. na mão, ' + p.open_kit.vendidas + ' vendidas sem baixar' +
+      (p.open_kit.days_since_delivery !== null ? ', há ' + p.open_kit.days_since_delivery + ' dias' : '') +
+      ') — vale conferir o fechamento dela antes de entregar outro.</div>';
+    if (!p.lines.length) {
+      h += '<div style="font-size:13px;color:var(--t2);margin-top:6px">Nada a mandar: nenhum pedido pendente e nenhuma venda para repor.</div></div>';
+      return;
+    }
+    h += '<table style="width:100%;margin-top:8px;font-size:12px"><tr><th style="text-align:left">produto</th><th>qtd</th><th>do estoque</th><th>comprar</th><th style="text-align:left">por quê</th><th>valor</th></tr>';
+    p.lines.forEach(function(l){
+      h += '<tr><td>' + esc(l.name) + (l.opcional ? ' <span style="color:var(--t3)">(sugestão)</span>' : '') + '</td><td>' + l.quantity +
+           '</td><td>' + l.from_stock + '</td><td>' + (l.to_buy || '—') + '</td><td style="color:var(--t3)">' + esc(l.motivo) + '</td><td>' + planMoney(l.sale_value_cents) +
+           (l.purchase_cost_cents ? ' · custo ' + planMoney(l.purchase_cost_cents) : '') + '</td></tr>';
+    });
+    h += '</table>';
+    var cob = p.cobertas_pelo_que_ela_ja_tem || [];
+    if (cob.length) h += '<div style="font-size:12px;color:var(--t3);margin-top:4px">' + cob.length +
+      ' venda(s) dela já estão cobertas pelo que está parado na bolsa e não voltam no kit: ' + cob.map(function(c){ return esc(c.name) + ' (' + c.vendidas + ')'; }).join(', ') + '.</div>';
+    if ((p.fora_do_teto||[]).length) h += '<div style="font-size:12px;color:var(--t3)">Fora do teto de valor: ' + p.fora_do_teto.map(function(c){ return esc(c.name) + ' (' + c.quantity + ')'; }).join(', ') + '</div>';
+    if ((p.sugestoes_sem_estoque||[]).length) h += '<div style="font-size:12px;color:var(--t3)">Campeãs dela sem estoque hoje: ' + p.sugestoes_sem_estoque.map(function(c){ return esc(c.name); }).join(', ') + '</div>';
+    if (p.totals.over_form_cap) h += '<div style="font-size:12px;color:#ff6b6b;margin-top:4px">⚠️ acima do teto de ' + planMoney(KIT_PLAN.rules.kit_form_cap_cents) + ' do formulário de kit (o formulário avisa, mas não trava).</div>';
+    h += '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
+    if (p.totals.from_stock > 0) h += '<button class="btn-s" onclick="aplicarPlano(' + p.reseller_id + ',this)">Criar kit “sugerido” com as ' + p.totals.from_stock + ' un. do estoque</button>';
+    h += '<button class="btn-sm" onclick="copiarLista(' + p.reseller_id + ')">Copiar lista de compra</button></div>';
+    h += '</div>';
+  });
+  var bl = KIT_PLAN.buy_list || [];
+  h += '<div style="border:1px dashed var(--bd);border-radius:8px;padding:12px"><strong>Lista de compra — ' +
+       (KIT_PLAN.buy_totals||{}).units + ' un. · ' + planMoney((KIT_PLAN.buy_totals||{}).cost_cents) + '</strong>';
+  if (!bl.length) {
+    h += '<div style="font-size:13px;color:var(--t2)">nada a comprar: o armazém cobre o plano todo.</div>';
+  } else {
+    h += '<table style="width:100%;font-size:12px;margin-top:6px"><tr><th style="text-align:left">produto</th><th>comprar</th><th>custo unit.</th><th>total</th><th style="text-align:left">para</th></tr>';
+    bl.forEach(function(b){
+      h += '<tr><td>' + esc(b.name) + '</td><td>' + b.quantity + '</td><td>' + planMoney(b.unit_cost_cents) + '</td><td>' + planMoney(b.cost_cents) +
+           '</td><td style="color:var(--t3)">' + b.para.map(esc).join(', ') + (b.supplier_id ? '' : ' ⚠️ sem fornecedor no cadastro') + '</td></tr>';
+    });
+    h += '</table>';
+  }
+  h += '<div style="font-size:12px;color:var(--t3);margin-top:6px">O que está nesta lista <strong>não vai no kit</strong>: o sistema trava a aprovação do kit inteiro se faltar estoque de uma linha. ' +
+       'Quando a compra entrar, acrescente ao kit pela ficha dele — o acréscimo confere o saldo e refaz o termo de entrega.</div></div>';
+  out.innerHTML = h;
+}
+
+async function aplicarPlano(rid, btn) {
+  var fill = ($('#planFill') && $('#planFill').checked);
+  if (btn) btn.disabled = true;
+  try {
+    var r = await api('/api/admin/kit-plan/apply', { method:'POST', body: JSON.stringify({ reseller_id: rid, include_fill: fill }) });
+    toast(r.message, 'ok');
+    await renderKits();
+  } catch(e) {
+    toast(e.message);
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function copiarLista(rid) {
+  var p = (KIT_PLAN.plans||[]).find(function(x){ return x.reseller_id === rid; });
+  var linhas = (p ? p.lines : []).filter(function(l){ return l.to_buy > 0; }).map(function(l){ return l.name + ' — comprar ' + l.to_buy + ' un. (' + planMoney(l.purchase_cost_cents) + ')'; });
+  if (!linhas.length) return toast('Nada para comprar para ela.');
+  var txt = 'Compra para o kit de ' + p.reseller_name + ':\n' + linhas.join('\n');
+  try { await navigator.clipboard.writeText(txt); toast('Lista de compra copiada.', 'ok'); }
+  catch(e) { prompt('Copie a lista:', txt); }
 }
 
 async function kitAction(id, action) {

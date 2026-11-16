@@ -430,14 +430,21 @@ CREATE TABLE IF NOT EXISTS tips (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- O pedido de reposição da revendedora. quantity_fulfilled/quantity_separated/kit_id
+-- nasceram de migração solta no server.js; sem eles o banco de uma instalação nova
+-- queimava em "no such column" em qualquer leitura de pedido. Ficam aqui de origem.
 CREATE TABLE IF NOT EXISTS reseller_orders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   reseller_id INTEGER NOT NULL REFERENCES resellers(id),
   product_id INTEGER NOT NULL REFERENCES products(id),
   quantity_requested INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente','atendido','cancelado')),
+  status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente','atendido','cancelado','separado')),
   note TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT,
+  quantity_fulfilled INTEGER DEFAULT 0,
+  quantity_separated INTEGER DEFAULT 0,
+  kit_id INTEGER REFERENCES kits(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_reseller_orders_reseller ON reseller_orders(reseller_id);

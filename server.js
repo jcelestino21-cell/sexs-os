@@ -33,6 +33,7 @@ const documentService = require('./src/documentService');
 const companyService = require('./src/companyService');
 const docxGenerator = require('./src/docxGenerator');
 const ordersService = require('./src/ordersService');
+const kitPlanService = require('./src/kitPlanService');
 const { hasCapability, capabilitiesFor } = require('./src/authorization');
 const notificationService = require('./src/notificationService');
 
@@ -318,17 +319,28 @@ try {
 
 
 
-// Migração: Adicionar status 'separado' à tabela reseller_orders
+// Migração: reseller_orders precisa das colunas de atendimento e de aceitar o status
+// 'separado'. Antes a decisão era "existe alguma linha com separado?", o que (1) refazia
+// a tabela inteira (DROP + RENAME, perdendo os índices) em todo boot de banco limpo e
+// (2) quebrava no `INSERT INTO ... SELECT *`, porque a tabela nova tem mais colunas que a
+// antiga — era o "[Migration] Erro ao adicionar status separado" do log, que deixava um
+// banco novo SEM a coluna quantity_fulfilled (e qualquer leitura de pedido caía em
+// "no such column"). Agora: acrescenta por ALTER o que falta e só reconstrói se o CHECK
+// realmente não aceita 'separado', copiando por nome de coluna.
 try {
-  const hasSeparado = db.prepare("SELECT COUNT(*) as count FROM reseller_orders WHERE status = 'separado'").get();
-  
-  if (hasSeparado.count === 0) {
-    // Criar tabela temporária com nova constraint
+  const colsRO = new Set(db.prepare('PRAGMA table_info(reseller_orders)').all().map((c) => c.name));
+  for (const [name, def] of [['updated_at', 'TEXT'], ['quantity_fulfilled', 'INTEGER DEFAULT 0'],
+    ['quantity_separated', 'INTEGER DEFAULT 0'], ['kit_id', 'INTEGER']]) {
+    if (!colsRO.has(name)) { db.exec(`ALTER TABLE reseller_orders ADD COLUMN ${name} ${def}`); colsRO.add(name); }
+  }
+  const ddlRO = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='reseller_orders'").get() || {}).sql || '';
+  if (!/'separado'/.test(ddlRO)) {
+    db.exec('PRAGMA foreign_keys=off');
     db.exec(`
-      CREATE TABLE IF NOT EXISTS reseller_orders_new (
+      CREATE TABLE reseller_orders_new (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        reseller_id INTEGER NOT NULL,
-        product_id INTEGER NOT NULL,
+        reseller_id INTEGER NOT NULL REFERENCES resellers(id),
+        product_id INTEGER NOT NULL REFERENCES products(id),
         quantity_requested INTEGER NOT NULL,
         status TEXT NOT NULL DEFAULT 'pendente' CHECK(status IN ('pendente','atendido','cancelado','separado')),
         note TEXT,
@@ -336,31 +348,25 @@ try {
         updated_at TEXT,
         quantity_fulfilled INTEGER DEFAULT 0,
         quantity_separated INTEGER DEFAULT 0,
-        kit_id INTEGER,
-        FOREIGN KEY (reseller_id) REFERENCES resellers(id),
-        FOREIGN KEY (product_id) REFERENCES products(id),
-        FOREIGN KEY (kit_id) REFERENCES kits(id)
+        kit_id INTEGER REFERENCES kits(id)
       )
     `);
-    
-    // Copiar dados da tabela antiga
     db.exec(`
-      INSERT INTO reseller_orders_new 
-      SELECT * FROM reseller_orders
+      INSERT INTO reseller_orders_new (id, reseller_id, product_id, quantity_requested, status, note,
+                                       created_at, updated_at, quantity_fulfilled, quantity_separated, kit_id)
+      SELECT id, reseller_id, product_id, quantity_requested, status, note,
+             created_at, updated_at, quantity_fulfilled, quantity_separated, kit_id
+      FROM reseller_orders
     `);
-    
-    // Dropar tabela antiga
-    db.exec(`DROP TABLE reseller_orders`);
-    
-    // Renomear tabela nova
-    db.exec(`ALTER TABLE reseller_orders_new RENAME TO reseller_orders`);
-    
-    console.log('[Migration] Status separado adicionado à tabela reseller_orders');
-  } else {
-    console.log('[Migration] Status separado já existe');
+    db.exec('DROP TABLE reseller_orders');
+    db.exec('ALTER TABLE reseller_orders_new RENAME TO reseller_orders');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_reseller_orders_reseller ON reseller_orders(reseller_id)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_reseller_orders_status ON reseller_orders(status)');
+    db.exec('PRAGMA foreign_keys=on');
+    console.log('[Migration] reseller_orders reconstruída para aceitar o status separado');
   }
 } catch (e) {
-  console.log('[Migration] Erro ao adicionar status separado:', e.message);
+  console.log('[Migration] reseller_orders:', e.message);
 }
 
 
@@ -1304,6 +1310,48 @@ router.get('/api/mentor/reseller-portals', requireCapability('resellers:read', (
 router.get('/api/orders/consolidated', requireCapability('orders:read', (req, res) => {
   sendJson(res, 200, { demand: ordersService.consolidatedDemand() });
 }));
+
+// ADMIN: simulador de kit — plano por revendedora ativa (só leitura: não reserva,
+// não baixa, não cria nada). O que "tem que comprar" fica fora do kit de propósito:
+// approveKit() trava o kit inteiro se faltar estoque de uma linha.
+router.get('/api/admin/kit-plan', requireAuth((req, res) => {
+  try {
+    const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const plano = kitPlanService.buildPlan({
+      fill: urlObj.searchParams.get('fill') !== '0',
+      maxValueCents: Number(urlObj.searchParams.get('max_value_cents') || 0) || 0,
+    });
+    sendJson(res, 200, plano);
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// ADMIN: transformar o plano de UMA revendedora em kit 'sugerido' com o que já está
+// no armazém. A CEO aprova e entrega depois, como sempre.
+router.post('/api/admin/kit-plan/apply', requireAuth(async (req, res) => {
+  try {
+    const b = await readJsonBody(req);
+    const out = kitPlanService.applyPlan({
+      resellerId: b.reseller_id,
+      userId: req.user.id,
+      includeFill: b.include_fill !== false,
+      force: !!b.force,
+      maxValueCents: Number(b.max_value_cents || 0) || 0,
+    });
+    logAudit({
+      actorUserId: req.user.id, actorLabel: 'CEO', action: 'kit.plan_applied',
+      entityType: 'kit', entityId: out.kit ? out.kit.id : null,
+      details: {
+        reseller_id: Number(b.reseller_id), linhas: out.kit ? out.kit.itens : 0,
+        falta_comprar: (out.left_to_buy || []).length, force: !!b.force,
+      },
+    });
+    sendJson(res, 200, out);
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
 
 // ---- Dicas rápidas ----
 router.get('/api/tips', requireCapability('tips:write', (req, res) => {
