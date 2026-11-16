@@ -1126,7 +1126,8 @@ function renderPlan() {
     h += '<div style="border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:12px;background:var(--p2)">';
     h += '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px"><strong>' + esc(p.reseller_name) + '</strong>' +
          '<span style="font-size:12px;color:var(--t3)">' + p.totals.units + ' un. · ' + planMoney(p.totals.sale_value_cents) + ' de venda · ' +
-         p.totals.from_stock + ' saem do estoque · ' + p.totals.to_buy + ' para comprar</span></div>';
+         p.totals.from_stock + ' saem do estoque · ' + p.totals.to_buy + ' para comprar' +
+         (p.totals.optional_units ? ' · ' + p.totals.optional_units + ' un. são sugestão, não pedido' : '') + '</span></div>';
     if (p.open_kit) h += '<div style="font-size:12px;color:var(--t3);margin-top:2px">kit #' + p.open_kit.kit_id + ' em aberto (' + esc(p.open_kit.status) +
       ', ' + p.open_kit.em_maos + ' un. na mão, ' + p.open_kit.vendidas + ' vendidas sem baixar' +
       (p.open_kit.days_since_delivery !== null ? ', há ' + p.open_kit.days_since_delivery + ' dias' : '') +

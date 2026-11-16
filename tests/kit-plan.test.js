@@ -74,6 +74,15 @@ function openKit(resellerId, productId, { emMaos = 0, vendidas = 0, status = 'en
 db.prepare('INSERT INTO pricing_rules (version, cost_multiplier, commission_pct, premium_multiplier, active, created_by) VALUES (?,?,?, ?,1,1)')
   .run(1, 2.5, 0.25, 1.3);
 
+/** Histórico de venda dela num kit já encerrado (não é kit aberto: só alimenta a sugestão). */
+function historyKit(resellerId, productId, { vendidas = 1 } = {}) {
+  const kitId = db.prepare("INSERT INTO kits (reseller_id, cycle_number, status, created_by) VALUES (?,?, 'encerrado', ?)").run(resellerId, uid(), CEO).lastInsertRowid;
+  db.prepare(`INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents, quantity_delivered,
+      quantity_available, quantity_pending_closure, quantity_confirmed_sold) VALUES (?,?,?,?,0,0,0,?)`)
+    .run(kitId, productId, vendidas, 2500, vendidas);
+  return kitId;
+}
+
 const planoDe = (rid, opts) => kitPlan.buildPlan(opts).plans.find((p) => p.reseller_id === rid);
 const linha = (plano, pid) => (plano ? plano.lines.find((l) => l.product_id === pid) : undefined);
 
@@ -196,6 +205,24 @@ test('kit parado há mais de três semanas sem venda lançada é avisado', () =>
   const alerta = kitPlan.buildPlan().alertas.find((a) => a.tipo === 'kit_sem_baixa');
   assert.ok(alerta, 'existe alerta');
   assert.match(alerta.aviso.join(' '), /há 4[0-9] dias sem nenhuma venda lançada/);
+});
+
+test('sugestão de complementação nunca toma a unidade que outra revendedora pediu', () => {
+  const velha = reseller('Doctest Sugestao');
+  const pedindo = reseller('Doctest Pedido Real');
+  const disputado = product('Gel Doctest Disputa2', { estoque: 1 });
+  const outro = product('Gel Doctest Outro2', { estoque: 2 });
+  historyKit(velha, disputado.id, { vendidas: 1 });     // ela já vendeu isso → entra na sugestão
+  pedido(velha, outro.id, 1, { diasAtras: 90 });         // e tem pedido mais antigo (fila na frente)
+  pedido(pedindo, disputado.id, 1, { diasAtras: 2 });   // a outra pediu a única unidade
+
+  const out = kitPlan.buildPlan({});
+  const a = out.plans.find((x) => x.reseller_name === 'Doctest Sugestao');
+  const b = out.plans.find((x) => x.reseller_name === 'Doctest Pedido Real');
+  assert.equal(linha(b, disputado.id).from_stock, 1, 'quem pediu leva a unidade do armazém');
+  assert.equal(linha(b, disputado.id).to_buy, 0, 'e não vira compra');
+  assert.equal(linha(a, disputado.id), undefined, 'a sugestão da primeira não passa na frente do pedido da segunda');
+  assert.ok(a.sugestoes_sem_estoque.some((x) => x.product_id === disputado.id), 'a sugestão aparece como "sem estoque hoje"');
 });
 
 test('teto de valor do formulário corta linha e avisa o que ficou fora', () => {

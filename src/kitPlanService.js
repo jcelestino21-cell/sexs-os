@@ -180,10 +180,10 @@ function buildPlan(options = {}) {
   const ordem = bruto.sort((a, b) => (b.idadeDias - a.idadeDias) || (b.unidades - a.unidades) || a.r.name.localeCompare(b.r.name));
 
   const pool = new Map(free);
-  const plans = [];
   const buy = new Map();
 
-  for (const { r, delinha } of ordem) {
+  // 1) monta a conta de necessidade de cada uma antes de tocar no estoque
+  const contextos = ordem.map(({ r, delinha }) => {
     const kit = abertos.get(r.id);
     const necessidade = new Map();
     const cobertas = [];
@@ -198,7 +198,10 @@ function buildPlan(options = {}) {
           // só é "coberta" se ela de fato vendeu algo (vendidas > 0); sem isso a lista
           // enche de produto que ela só tem parado na bolsa
           if (vendidas > 0) {
-            cobertas.push({ product_id: pid, name: (prods.get(pid) || {}).name, vendidas, em_maos: kit.em_maos.get(pid) || 0 });
+            cobertas.push({
+              product_id: pid, name: (prods.get(pid) || {}).name, vendidas,
+              em_maos: kit.em_maos.get(pid) || 0,
+            });
           }
           continue;
         }
@@ -208,102 +211,112 @@ function buildPlan(options = {}) {
         necessidade.set(pid, atual);
       }
     }
+    return { r, kit, necessidade, cobertas, linhas: [], valorAcumulado: 0, cortadas: [], sugestoesSemEstoque: [] };
+  });
 
-    const linhas = [];
-    let valorAcumulado = 0;
-    let cortadas = [];
-    const empurrar = (pid, q, motivo, opcional) => {
-      const p = prods.get(pid);
-      if (!p || q <= 0) return;
-      const preco = priceOf(p);
-      if (cap > 0 && valorAcumulado + q * preco > cap) {
-        const queCabe = Math.max(0, Math.floor((cap - valorAcumulado) / (preco || 1)));
-        if (queCabe < q) cortadas.push({ product_id: pid, name: p.name, quantity: q - queCabe, motivo });
-        if (queCabe <= 0) return;
-        q = queCabe;
-      }
-      const disponivel = Math.max(0, pool.get(pid) || 0);
-      const doEstoque = Math.min(q, disponivel);
-      pool.set(pid, disponivel - doEstoque);
-      const comprar = q - doEstoque;
-      valorAcumulado += q * preco;
-      linhas.push({
-        product_id: pid,
-        name: p.name,
-        category: p.category,
-        quantity: q,
-        from_stock: doEstoque,
-        to_buy: comprar,
-        motivo,
-        opcional: !!opcional,
-        unit_sale_price_cents: preco,
-        sale_value_cents: q * preco,
-        unit_cost_cents: p.last_purchase_cost_cents || 0,
-        purchase_cost_cents: comprar * (p.last_purchase_cost_cents || 0),
-        supplier_id: p.default_supplier_id || null,
-        sem_preco: preco <= 0,
-      });
-      if (comprar > 0) {
-        const b = buy.get(pid) || { product_id: pid, name: p.name, quantity: 0, cost_cents: 0, supplier_id: p.default_supplier_id || null, para: [] };
-        b.quantity += comprar;
-        b.cost_cents += comprar * (p.last_purchase_cost_cents || 0);
-        b.para.push(r.name);
-        buy.set(pid, b);
-      }
-    };
+  const empurrar = (ctx, pid, q, motivo, opcional) => {
+    const p = prods.get(pid);
+    if (!p || q <= 0) return;
+    const preco = priceOf(p);
+    if (cap > 0 && ctx.valorAcumulado + q * preco > cap) {
+      const queCabe = Math.max(0, Math.floor((cap - ctx.valorAcumulado) / (preco || 1)));
+      if (queCabe < q) ctx.cortadas.push({ product_id: pid, name: p.name, quantity: q - queCabe, motivo });
+      if (queCabe <= 0) return;
+      q = queCabe;
+    }
+    const disponivel = Math.max(0, pool.get(pid) || 0);
+    const doEstoque = Math.min(q, disponivel);
+    pool.set(pid, disponivel - doEstoque);
+    const comprar = q - doEstoque;
+    ctx.valorAcumulado += q * preco;
+    ctx.linhas.push({
+      product_id: pid,
+      name: p.name,
+      category: p.category,
+      quantity: q,
+      from_stock: doEstoque,
+      to_buy: comprar,
+      motivo,
+      opcional: !!opcional,
+      unit_sale_price_cents: preco,
+      sale_value_cents: q * preco,
+      unit_cost_cents: p.last_purchase_cost_cents || 0,
+      purchase_cost_cents: comprar * (p.last_purchase_cost_cents || 0),
+      supplier_id: p.default_supplier_id || null,
+      sem_preco: preco <= 0,
+    });
+    if (comprar > 0) {
+      const b = buy.get(pid) || {
+        product_id: pid, name: p.name, quantity: 0, cost_cents: 0,
+        supplier_id: p.default_supplier_id || null, para: [],
+      };
+      b.quantity += comprar;
+      b.cost_cents += comprar * (p.last_purchase_cost_cents || 0);
+      b.para.push(ctx.r.name);
+      buy.set(pid, b);
+    }
+  };
 
-    // 1. o que ela pediu (ordem: quem pediu mais primeiro, depois nome)
-    [...necessidade.entries()]
-      .sort((a, b) => (b[1].q - a[1].q) || (prods.get(a[0]) || { name: '' }).name.localeCompare((prods.get(b[0]) || { name: '' }).name))
+  // 2) FIRST a demanda real de todas (pedido + reposição) — sugestão nenhuma tem
+  //    direito de levar a unidade que outra já pediu
+  for (const ctx of contextos) {
+    [...ctx.necessidade.entries()]
+      .sort((a, b) => (b[1].q - a[1].q)
+        || (prods.get(a[0]) || { name: '' }).name.localeCompare((prods.get(b[0]) || { name: '' }).name))
       .forEach(([pid, x]) => {
         const motivos = [];
         if (x.pedido) motivos.push(`pediu ${x.pedido}`);
-        if (x.reposicao) motivos.push(`vendeu ${x.reposicao} no kit #${kit.kit_id}`);
-        empurrar(pid, x.q, motivos.join(' · ') || 'demanda');
+        if (x.reposicao) motivos.push(`vendeu ${x.reposicao} no kit #${ctx.kit.kit_id}`);
+        empurrar(ctx, pid, x.q, motivos.join(' · ') || 'demanda');
       });
+  }
 
-    // 2. completar com o que ela mais vende na vida, se houver estoque
-    let sugestoes = [];
-    if (fill) {
-      const jaNoPlano = new Set(linhas.map((l) => l.product_id));
-      const emMaos = kit ? kit.em_maos : new Map();
-      for (const h of historico.get(r.id) || []) {
+  // 3) depois, o complemento: campeãs de venda DELA enquanto sobrar estoque
+  if (fill) {
+    for (const ctx of contextos) {
+      const jaNoPlano = new Set(ctx.linhas.map((l) => l.product_id));
+      const emMaos = ctx.kit ? ctx.kit.em_maos : new Map();
+      for (const h of historico.get(ctx.r.id) || []) {
         if (jaNoPlano.has(h.product_id) || (emMaos.get(h.product_id) || 0) > 0) continue;
         const p = prods.get(h.product_id);
         if (!p) continue;
-        const quero = Math.min(FILL_MAX_PER_PRODUCT, Math.max(1, Math.floor((pool.get(h.product_id) || 0) / 2)));
         if ((pool.get(h.product_id) || 0) < 1) {
-          sugestoes.push({ product_id: h.product_id, name: p.name, vendidas_total: h.vendidas, sem_estoque: true, quantity: 0 });
+          ctx.sugestoesSemEstoque.push({ product_id: h.product_id, name: p.name, vendidas_total: h.vendidas });
           continue;
         }
-        empurrar(h.product_id, quero, `campeã de venda dela (${h.vendidas} no total)`, true);
-        if (linhas.filter((l) => l.opcional).length >= FILL_MAX_LINES) break;
+        const quero = Math.min(FILL_MAX_PER_PRODUCT, Math.max(1, Math.floor((pool.get(h.product_id) || 0) / 2)));
+        empurrar(ctx, h.product_id, quero, `campeã de venda dela (${h.vendidas} no total)`, true);
+        jaNoPlano.add(h.product_id);
+        if (ctx.linhas.filter((l) => l.opcional).length >= FILL_MAX_LINES) break;
       }
     }
-
-    const soma = (key) => linhas.reduce((s, l) => s + l[key], 0);
-    plans.push({
-      reseller_id: r.id,
-      reseller_name: r.name,
-      open_kit: kit ? {
-        kit_id: kit.kit_id, status: kit.status, cycle_number: kit.cycle_number, delivered_at: kit.delivered_at,
-        days_since_delivery: daysSince(kit.delivered_at), em_maos: kit.total_em_maos, vendidas: kit.total_vendidas,
-      } : null,
-      lines: linhas,
-      cobertas_pelo_que_ela_ja_tem: cobertas,
-      sugestoes_sem_estoque: sugestoes.filter((s) => s.sem_estoque),
-      fora_do_teto: cortadas,
-      totals: {
-        lines: linhas.length,
-        units: soma('quantity'),
-        from_stock: soma('from_stock'),
-        to_buy: soma('to_buy'),
-        sale_value_cents: soma('sale_value_cents'),
-        purchase_cost_cents: soma('purchase_cost_cents'),
-        over_form_cap: cap === 0 && soma('sale_value_cents') > KIT_FORM_CAP_CENTS,
-      },
-    });
   }
+
+  const soma = (ctx, key) => ctx.linhas.reduce((acc, l) => acc + l[key], 0);
+  const plans = contextos.map((ctx) => ({
+    reseller_id: ctx.r.id,
+    reseller_name: ctx.r.name,
+    open_kit: ctx.kit ? {
+      kit_id: ctx.kit.kit_id, status: ctx.kit.status, cycle_number: ctx.kit.cycle_number,
+      delivered_at: ctx.kit.delivered_at, days_since_delivery: daysSince(ctx.kit.delivered_at),
+      em_maos: ctx.kit.total_em_maos, vendidas: ctx.kit.total_vendidas,
+    } : null,
+    lines: ctx.linhas,
+    cobertas_pelo_que_ela_ja_tem: ctx.cobertas,
+    sugestoes_sem_estoque: ctx.sugestoesSemEstoque,
+    fora_do_teto: ctx.cortadas,
+    totals: {
+      lines: ctx.linhas.length,
+      units: soma(ctx, 'quantity'),
+      from_stock: soma(ctx, 'from_stock'),
+      to_buy: soma(ctx, 'to_buy'),
+      obligatory_lines: ctx.linhas.filter((l) => !l.opcional).length,
+      optional_units: ctx.linhas.filter((l) => l.opcional).reduce((a, l) => a + l.quantity, 0),
+      sale_value_cents: soma(ctx, 'sale_value_cents'),
+      purchase_cost_cents: soma(ctx, 'purchase_cost_cents'),
+      over_form_cap: cap === 0 && soma(ctx, 'sale_value_cents') > KIT_FORM_CAP_CENTS,
+    },
+  }));
 
   const alertas = [];
   const presos = stuckSeparated();
