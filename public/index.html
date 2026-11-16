@@ -334,6 +334,7 @@ async function renderApp() {
     if (S.user.director_key === 'mentor_analise') tabs.push({k:'mentor-portals',l:'🧾 Portais das Revendedoras'});
     if (S.user.role === 'ceo') tabs.push({k:'orders',l:'📋 Pedidos'});
     if (can('kits:read')) tabs.push({k:'kits',l:'📦 Kits'});
+    if (can('kits:read')) tabs.push({k:'kitmontar',l:'🪄 Montar Kit'});
     if (can('kits:read')) tabs.push({k:'products-resellers',l:'🔍 Produtos com Clientes'});
     if (can('financial:read')) tabs.push({k:'financial',l:'💰 Financeiro'});
     if (S.user.role === 'ceo') tabs.push({k:'goals',l:'🎯 Metas'});
@@ -391,6 +392,7 @@ function switchTab(tab) {
     resellers:renderResellers,
     orders:renderOrders,
     kits:renderKits,
+    kitmontar:renderKitBuilder,
     'products-resellers':renderProductsResellers,
     financial:renderFinancial,
     goals:renderGoals,
@@ -928,33 +930,7 @@ async function renderKits() {
   var v = $('#v-kits'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
   try {
-    var [kitsData, resData, prodData] = await Promise.all([
-      api('/api/kits'), api('/api/resellers'), api('/api/products')
-    ]);
-    
-    var suggestHtml = '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">📦 Criar Novo Kit para Revendedora</div>' +
-      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">1. Selecione a Revendedora:</label>' +
-      '<select id="kitRes" style="width:100%;margin-top:4px">' + resData.resellers.map(function(r){return '<option value="'+r.id+'">'+esc(r.name)+'</option>';}).join('') + '</select></div>' +
-      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">2. Adicione produtos ao kit (pode adicionar quantos quiser):</label>' +
-      '<div class="row" style="gap:8px;margin-top:4px">' +
-      '<select id="kitProd" style="flex:1">' + prodData.products.filter(function(p){return p.available_balance > 0;}).sort(function(a,b){return a.name.localeCompare(b.name);}).map(function(p){return '<option value="'+p.id+'" data-price="'+(p.ideal_price_cents || 0)+'">'+esc(p.name)+' ('+p.available_balance+' disp.)</option>';}).join('') + '</select>' +
-      '<input id="kitQty" type="number" min="1" placeholder="qtd" style="width:80px" value="1" />' +
-      '<button class="btn-s" onclick="addToKit()">+ Adicionar ao Kit</button>' +
-      '</div></div>' +
-      '<div id="kitItemsList" style="margin-bottom:12px"></div>' +
-      '<div style="display:flex;gap:8px">' +
-      '<button class="btn-s" onclick="suggestKit()" style="flex:1;background:var(--sc);color:var(--bg)">✅ Criar Kit</button>' +
-      '<button class="btn-s" onclick="clearKit()" style="flex:0.5">🗑️ Limpar</button>' +
-      '</div>' +
-      '</div>';
-
-    var planHtml = '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">🪄 Simular os kits (estoque primeiro, compra depois)</div>' +
-      '<div style="font-size:12px;color:var(--t2);margin-bottom:10px">Monta o plano de cada revendedora ativa com o que <em>já está no armazém</em> e joga para uma lista à parte o que <em>precisa comprar</em>. ' +
-      'Regra: o que ela pediu + o que ela vendeu no kit em aberto, sem repetir o que ela ainda tem parado na bolsa. Nada é reservado nem baixado aqui.</div>' +
-      '<label style="font-size:12px;color:var(--t2)"><input type="checkbox" id="planFill" checked /> completar o kit com o que cada uma mais vende</label> ' +
-      '<button class="btn-s" onclick="simularKits()">Gerar plano</button>' +
-      '<div id="planOut" style="margin-top:12px"></div></div>';
-
+    var kitsData = await api('/api/kits');
     var statusLabels = {sugerido:'⏳ Sugerido',aprovado:'✅ Aprovado',em_preparacao:'📦 Em preparação',entregue:'🚚 Entregue',aguardando_fechamento:'📋 Aguardando fechamento',encerrado:'🏁 Encerrado',rejeitado:'❌ Rejeitado'};
     
     // Alerta de solicitações de fechamento pendentes
@@ -987,10 +963,50 @@ async function renderKits() {
           actions + '<div id="kit-details-' + k.id + '" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--bd)"></div>' + '</div>';
       });
     } else {
-      kitsHtml = '<div class="panel"><div class="empty">Nenhum kit ainda. Sugira o primeiro acima! 📦</div></div>';
+      kitsHtml = '<div class="panel"><div class="empty">Nenhum kit ainda. Monte o primeiro na aba 🪄 Montar Kit! 📦</div></div>';
     }
 
-    v.innerHTML = planHtml + suggestHtml + kitsHtml;
+    var fechamentoHtml = '<div class="panel"><div class="st" style="margin-top:0">📦 Entrega e fechamento dos kits</div>' +
+      '<div style="font-size:12px;color:var(--t2)">É aqui que você controla o que está na mão de cada revendedora: aprovar o sugerido, ' +
+      'confirmar a entrega, conferir item por item e fechar. Para montar kit novo (ou simular com o estoque): ' +
+      '<button class="btn-sm" onclick="switchTab(\'kitmontar\')">🪄 Ir para Montar Kit</button></div></div>';
+    v.innerHTML = fechamentoHtml + kitsHtml;
+  } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
+}
+
+// ABA À PARTE de montagem: o formulário de criar kit e o simulador de plano. A lista de
+// kits (aba 📦 Kits) é o painel de fechamento da CEO e não deve competir com formulário
+// na mesma tela — foi o que a CEO pediu depois do painel do simulador entrar ali.
+async function renderKitBuilder() {
+  var v = $('#v-kitmontar'); if(!v) return;
+  v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
+  try {
+    var [resData, prodData] = await Promise.all([api('/api/resellers'), api('/api/products')]);
+    
+    var suggestHtml = '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">📦 Criar Novo Kit para Revendedora</div>' +
+      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">1. Selecione a Revendedora:</label>' +
+      '<select id="kitRes" style="width:100%;margin-top:4px">' + resData.resellers.map(function(r){return '<option value="'+r.id+'">'+esc(r.name)+'</option>';}).join('') + '</select></div>' +
+      '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">2. Adicione produtos ao kit (pode adicionar quantos quiser):</label>' +
+      '<div class="row" style="gap:8px;margin-top:4px">' +
+      '<select id="kitProd" style="flex:1">' + prodData.products.filter(function(p){return p.available_balance > 0;}).sort(function(a,b){return a.name.localeCompare(b.name);}).map(function(p){return '<option value="'+p.id+'" data-price="'+(p.ideal_price_cents || 0)+'">'+esc(p.name)+' ('+p.available_balance+' disp.)</option>';}).join('') + '</select>' +
+      '<input id="kitQty" type="number" min="1" placeholder="qtd" style="width:80px" value="1" />' +
+      '<button class="btn-s" onclick="addToKit()">+ Adicionar ao Kit</button>' +
+      '</div></div>' +
+      '<div id="kitItemsList" style="margin-bottom:12px"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button class="btn-s" onclick="suggestKit()" style="flex:1;background:var(--sc);color:var(--bg)">✅ Criar Kit</button>' +
+      '<button class="btn-s" onclick="clearKit()" style="flex:0.5">🗑️ Limpar</button>' +
+      '</div>' +
+      '</div>';
+
+    var planHtml = '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">🪄 Simular os kits (estoque primeiro, compra depois)</div>' +
+      '<div style="font-size:12px;color:var(--t2);margin-bottom:10px">Monta o plano de cada revendedora ativa com o que <em>já está no armazém</em> e joga para uma lista à parte o que <em>precisa comprar</em>. ' +
+      'Regra: o que ela pediu + o que ela vendeu no kit em aberto, sem repetir o que ela ainda tem parado na bolsa. Nada é reservado nem baixado aqui.</div>' +
+      '<label style="font-size:12px;color:var(--t2)"><input type="checkbox" id="planFill" checked /> completar o kit com o que cada uma mais vende</label> ' +
+      '<button class="btn-s" onclick="simularKits()">Gerar plano</button>' +
+      '<div id="planOut" style="margin-top:12px"></div></div>';
+
+    v.innerHTML = planHtml + suggestHtml;
     renderKitItemsList();
     if (window.KIT_PLAN) renderPlan();
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
@@ -1090,9 +1106,9 @@ async function suggestKit() {
       reseller_id: Number($('#kitRes').value),
       items: kitItems.map(i => ({ product_id: i.product_id, quantity: i.quantity }))
     })});
-    toast('Kit sugerido! Agora aprove na lista abaixo.', 'ok');
+    toast('Kit sugerido! Agora aprove na aba 📦 Kits.', 'ok');
     kitItems = [];
-    renderKits();
+    renderKitBuilder(); // limpa o rascunho na tela; a aba 📦 Kits é redesenhada quando você abre ela
   } catch(e) { toast(e.message); }
 }
 
@@ -1178,7 +1194,7 @@ async function aplicarPlano(rid, btn) {
   try {
     var r = await api('/api/admin/kit-plan/apply', { method:'POST', body: JSON.stringify({ reseller_id: rid, include_fill: fill }) });
     toast(r.message, 'ok');
-    await renderKits();
+    await renderKitBuilder();
   } catch(e) {
     toast(e.message);
     if (btn) btn.disabled = false;
