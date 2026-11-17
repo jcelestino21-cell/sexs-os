@@ -950,7 +950,7 @@ async function renderKits() {
       kitsHtml = alertHtml + '<div class="st">Kits (' + kitsData.kits.length + ')</div>';
       kitsData.kits.forEach(function(k) {
         var actions = '';
-        if (k.status === 'sugerido') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'approve\')">Aprovar</button><button class="reject" onclick="kitAction('+k.id+',\'reject\')">Rejeitar</button></div>';
+        if (k.status === 'sugerido') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="switchTab(\'kitmontar\')">🪄 Revisar e aprovar em Montar Kit</button></div>';
         else if (k.status === 'aprovado') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button><button class="reject" onclick="kitAction('+k.id+',\'cancel\')">Cancelar</button></div>';
         else if (k.status === 'em_preparacao') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button></div>';
         else if (k.status === 'entregue') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="kitAction('+k.id+',\'request-closure\')">Solicitar fechamento</button></div>';
@@ -982,6 +982,39 @@ async function renderKitBuilder() {
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
   try {
     var [resData, prodData] = await Promise.all([api('/api/resellers'), api('/api/products')]);
+    // Os kits que ela acabou de sugerir (antes ficavam na aba 📋 Pedidos): aqui dá para
+    // tirar/acrescentar item e aprovar. Se essa consulta falhar, o formulário e o
+    // simulador continuam funcionando — só não mostra a fila de revisão.
+    var openKits = [];
+    try {
+      var kitsData = await api('/api/kits');
+      openKits = ((kitsData && kitsData.kits) || []).filter(function(k) { return k.status === 'sugerido'; });
+      for (var oi = 0; oi < openKits.length; oi++) {
+        var det = await api('/api/kits/' + openKits[oi].id);
+        openKits[oi].items = (det.kit && det.kit.items) || [];
+      }
+    } catch(e) { openKits = []; }
+    var openHtml = '';
+    if (openKits.length) {
+      openHtml = '<div class="panel" style="margin-bottom:20px;border:2px solid var(--ac)"><div class="st" style="margin-top:0">⏳ Kits em aberto para revisar antes de aprovar (' + openKits.length + ')</div>' +
+        '<div style="font-size:12px;color:var(--t2);margin-bottom:12px">Ajusta a composição aqui. Ao aprovar, o kit passa a aparecer na aba 📦 Kits para entregar e fechar.</div>';
+      openKits.forEach(function(k) {
+        openHtml += '<div style="background:var(--p2);border:1px solid var(--bds);border-radius:var(--r2);padding:14px;margin-bottom:12px">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+          '<strong>Kit #' + k.id + ' — ' + esc(k.reseller_name || '') + ' (' + (k.items || []).length + ' itens)</strong>' +
+          '<span><button class="btn-sm" onclick="approveKit(' + k.id + ')">✅ Aprovar kit</button> ' +
+          '<button class="btn-sm" onclick="kitAction(' + k.id + ',\'reject\')">✕ Rejeitar</button> ' +
+          '<button class="btn-sm" onclick="addItemToKit(' + k.id + ')">+ Adicionar produto</button></span></div>';
+        (k.items || []).forEach(function(it) {
+          openHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd);font-size:13px">' +
+            '<span>' + esc(it.product_name) + '</span>' +
+            '<span style="display:flex;align-items:center;gap:8px"><strong>' + it.quantity_suggested + ' un</strong>' +
+            '<button class="btn-sm" onclick="removeItemFromOrdersKit(' + k.id + ',' + it.product_id + ')">− remover</button></span></div>';
+        });
+        openHtml += '</div>';
+      });
+      openHtml += '</div>';
+    }
     
     var suggestHtml = '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">📦 Criar Novo Kit para Revendedora</div>' +
       '<div style="margin-bottom:12px"><label style="font-size:12px;color:var(--t2)">1. Selecione a Revendedora:</label>' +
@@ -1006,7 +1039,7 @@ async function renderKitBuilder() {
       '<button class="btn-s" onclick="simularKits()">Gerar plano</button>' +
       '<div id="planOut" style="margin-top:12px"></div></div>';
 
-    v.innerHTML = planHtml + suggestHtml;
+    v.innerHTML = openHtml + planHtml + suggestHtml;
     renderKitItemsList();
     if (window.KIT_PLAN) renderPlan();
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
@@ -1210,11 +1243,19 @@ async function copiarLista(rid) {
   catch(e) { prompt('Copie a lista:', txt); }
 }
 
+// Os dois painéis de kit vivem em abas diferentes: recarrega a que está na tela, para
+// nenhum botão sumir depois do clique nem deixar rascunho velho na outra.
+function refreshKitViews() {
+  if (document.querySelector('#v-kitmontar.active')) return renderKitBuilder();
+  if (document.querySelector('#v-kits.active')) return renderKits();
+  return renderKitBuilder();
+}
+
 async function kitAction(id, action) {
   try {
     await api('/api/kits/' + id + '/' + action, {method:'POST', body:'{}'});
     toast('Ação realizada!', 'ok');
-    renderKits();
+    refreshKitViews();
   } catch(e) { toast(e.message); }
 }
 
@@ -1465,49 +1506,20 @@ async function renderOrders() {
       }
     }
     
-    // Buscar kits em aberto (sugeridos)
+    // Os kits sugeridos (aprovar/ajustar) são tratados na aba 🪄 Montar Kit.
     var kitsResponse = await api('/api/kits');
     var kits = kitsResponse.kits || [];
     var openKits = kits.filter(function(k) { return k.status === 'sugerido'; });
     
     var html = '<div class="panel"><div class="st" style="margin-top:0">📋 Gerenciar Pedidos</div>';
     
-    // Mostrar kits em aberto
     if (openKits.length > 0) {
-      html += '<div style="margin-bottom:24px">';
-      html += '<div style="font-weight:600;margin-bottom:12px;color:var(--ac)">Kits em Aberto (' + openKits.length + ')</div>';
-      
-      for (var kit of openKits) {
-        var kitDetailResponse = await api('/api/kits/' + kit.id);
-        var kitDetail = kitDetailResponse.kit;
-        var items = kitDetail.items || [];
-        
-        html += '<div style="background:var(--p2);padding:16px;border-radius:var(--r2);border:2px solid var(--ac);margin-bottom:12px">';
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">';
-        html += '<div><strong>Kit #' + kit.id + ' - ' + esc(kit.reseller_name) + '</strong></div>';
-        html += '<button class="btn-s" onclick="approveKit(' + kit.id + ')">✅ Aprovar Kit</button>';
-        html += '</div>';
-        
-        html += '<div style="font-size:13px;color:var(--t2);margin-bottom:8px">Itens no kit:</div>';
-        for (var item of items) {
-          html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd)">';
-          html += '<span>' + esc(item.product_name) + '</span>';
-          html += '<span style="display:flex;align-items:center;gap:8px"><strong>' + item.quantity_suggested + ' un</strong>';
-          html += '<button onclick="removeItemFromOrdersKit(' + kit.id + ',' + item.product_id + ')" style="background:#dc2626;color:#fff;border:none;padding:4px 8px;border-radius:4px;font-size:11px;cursor:pointer">🗑️ Estornar</button>';
-          html += '</span>';
-          html += '</div>';
-        }
-        
-        html += '<div style="margin-top:12px">';
-        html += '<button class="btn-sm" onclick="addItemToKit(' + kit.id + ')">+ Adicionar Produto</button>';
-        html += '</div>';
-        
-        html += '</div>';
-      }
-      
-      html += '</div>';
+      html += '<div style="margin-bottom:20px;padding:14px 16px;border:2px solid var(--ac);border-radius:var(--r2);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">' +
+        '<div><strong style="color:var(--ac)">' + openKits.length + ' kit(s) sugerido(s) esperando revisão</strong>' +
+        '<div style="font-size:12px;color:var(--t2)">Aprovar, tirar ou acrescentar produto é na aba 🪄 Montar Kit.</div></div>' +
+        '<button class="btn-s" onclick="switchTab(\'kitmontar\')">🪄 Abrir Montar Kit</button></div>';
     }
-    
+
     // Mostrar pedidos por revendedora
     if (allOrders.length > 0) {
       html += '<div style="font-weight:600;margin-bottom:12px">Pedidos Pendentes por Revendedora</div>';
@@ -1610,7 +1622,7 @@ async function removeItemFromOrdersKit(kitId, productId) {
       body: JSON.stringify({ product_id: productId })
     });
     toast('Item estornado com sucesso!', 'ok');
-    renderOrders();
+    refreshKitViews();
   } catch(e) {
     toast('Erro: ' + e.message);
   }
@@ -1624,8 +1636,8 @@ async function approveKit(kitId) {
       method: 'POST'
     });
     
-    toast('Kit aprovado com sucesso!', 'ok');
-    renderOrders();
+    toast('Kit aprovado com sucesso! Agora entregue e feche na aba 📦 Kits.', 'ok');
+    refreshKitViews();
   } catch(e) {
     toast('Erro: ' + e.message);
   }
@@ -1702,7 +1714,7 @@ async function addItemToKit(kitId) {
         });
         closeModal();
         toast('Item adicionado ao kit!', 'ok');
-        renderOrders();
+        refreshKitViews();
       } catch(e) {
         toast('Erro: ' + e.message);
       }
