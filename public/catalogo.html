@@ -374,13 +374,14 @@ function resellerCardHtml(r) {
   // só uma prateleira. Some o atalho "ver dela" (não há o que ver) e fica a observação de
   // que o próximo kit está chegando — assim que ela recebe produto, o cartão volta ao normal
   // sozinho, porque a contagem vem do catálogo em tempo real.
+  // A contagem NÃO é mostrada para a cliente (decisão da CEO: quanto cada revendedora tem
+  // em mãos não é informação do catálogo). `products_available` continua no payload e segue
+  // sendo só o que decide qual das duas frases o cartão exibe.
   var tem = r.products_available > 0;
   return '<div class="rcard' + (UI.resellerId === r.id ? ' sel' : '') + (tem ? '' : ' semkit') + '">'
     + '<div class="avatar">' + esc((r.name || '?').trim().charAt(0).toUpperCase()) + '</div>'
     + '<div class="rmeta"><div class="rname">' + esc(r.name) + '</div>'
-    + '<div class="rsub">' + (tem
-        ? r.products_available + ' produto' + (r.products_available === 1 ? '' : 's') + ' pronto' + (r.products_available === 1 ? '' : 's')
-        : 'próximo kit em breve — entre em contato com a revendedora') + '</div></div>'
+    + '<div class="rsub">' + (tem ? 'atende pelo WhatsApp' : 'próximo kit em breve — entre em contato com a revendedora') + '</div></div>'
     + '<div class="racts">'
     + (tem ? '<button class="mini" data-reseller="' + r.id + '">' + (UI.resellerId === r.id ? 'vendo todos' : 'ver dela') + '</button>' : '')
     + '<a class="mini wa" href="' + esc(waLink(r.whatsapp, msg)) + '" target="_blank" rel="noopener">WhatsApp</a>'
@@ -499,8 +500,7 @@ function openSheet(index, mode) {
     var msg = productMessage(h.greeting || h.name, p.name, mode === 'pronto' ? 'pronto' : 'encomenda');
     var tag = h.kind === 'estoque'
       ? (mode === 'pronto' ? 'pronta no estoque · entrega a combinar' : 'encomenda direto com a empresa')
-      : (mode === 'pronto' ? 'com ela, pronta para entregar'
-         : (h.products_available ? h.products_available + ' produtos prontos com ela' : 'anota sua encomenda'));
+      : (mode === 'pronto' ? 'com ela, pronta para entregar' : 'anota sua encomenda');
     return '<a class="opt" href="' + esc(waLink(h.whatsapp, msg)) + '" target="_blank" rel="noopener">'
       + '<div class="avatar">' + esc((h.name || '?').trim().charAt(0).toUpperCase()) + '</div>'
       + '<div class="rmeta"><div class="rname">' + esc(h.name) + '</div><div class="tag">' + esc(tag) + '</div></div>'
