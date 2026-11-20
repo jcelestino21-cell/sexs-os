@@ -2699,7 +2699,7 @@ router.post('/api/admin/fix-kit-item-available', requireAuth(async (req, res) =>
 // ADMIN: Realocar unidades entre linhas do MESMO kit (produto errado na linha, mistura de
 // fornecedor). Não mexe em estoque físico — nenhuma caixa mudou de lugar agora; muda o
 // rótulo da unidade e o que está na mão da revendedora, e descarta a conferência das duas
-// linhas para que sejam reconfenferidas antes de fechar.
+// linhas para que sejam reconferidas antes de fechar.
 router.post('/api/admin/reassign-kit-item-units', requireAuth(async (req, res) => {
   try {
     const body = await readJsonBody(req);
