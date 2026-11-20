@@ -4003,11 +4003,16 @@ router.post('/api/admin/add-item-to-kit', requireAuth(async (req, res) => {
     const product = db.prepare('SELECT ideal_price_cents FROM products WHERE id = ?').get(product_id);
     const price = product ? product.ideal_price_cents : 0;
     
+    // Kit aprovado tem reserva por linha, e a entrega cobra isso. Quem entra depois da
+    // aprovação precisa chegar já reservado — senão a entrega quebra no dia de sair.
+    const precisaReservar = ['aprovado', 'em_preparacao'].includes(kit.status);
+    
     // Verificar se o produto já existe no kit
     const existingItem = db.prepare('SELECT * FROM kit_items WHERE kit_id = ? AND product_id = ?').get(kit_id, product_id);
     
     if (existingItem) {
       // Somar quantidades
+      if (precisaReservar) kitService.ensureStockReservation(kit_id, product_id, quantity);
       db.prepare('UPDATE kit_items SET quantity_suggested = quantity_suggested + ?, quantity_delivered = quantity_delivered + ? WHERE id = ?').run(quantity, quantity, existingItem.id);
       if (isDelivered) {
         db.prepare('UPDATE kit_items SET quantity_available = quantity_available + ? WHERE id = ?').run(quantity, existingItem.id);
@@ -4020,6 +4025,7 @@ router.post('/api/admin/add-item-to-kit', requireAuth(async (req, res) => {
           VALUES (?, ?, ?, ?, ?, ?)
         `).run(kit_id, product_id, quantity, quantity, quantity, price);
       } else {
+        if (precisaReservar) kitService.ensureStockReservation(kit_id, product_id, quantity);
         db.prepare(`
           INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents)
           VALUES (?, ?, ?, ?)

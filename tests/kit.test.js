@@ -198,3 +198,32 @@ test('contratar a mesma revendedora duas vezes não duplica cadastro', async () 
   const count = db.prepare('SELECT COUNT(*) as c FROM resellers WHERE name = ?').get('Repetida');
   assert.equal(count.c, 1);
 });
+
+test('linha acrescentada depois da aprovação não trava a entrega (e não reserva o que não existe)', async () => {
+  const ceo = makeUser('ceo');
+  seedRule(ceo.id);
+  const naBolsa = await buyStock(ceo, 'Late Add A', 4, 1000);
+  const recem = await buyStock(ceo, 'Late Add B', 3, 2000);   // entra no kit depois do aprovado
+  const semSaldo = await buyStock(ceo, 'Late Add C', 0, 500); // linha pedindo o que a empresa não tem
+  const { resellerId } = await hireReseller(ceo, 'LateAddRev');
+
+  const kit = kitService.suggestKit({ resellerId, items: [{ product_id: naBolsa.id, quantity: 2 }], userId: ceo.id });
+  kitService.approveKit(kit.id, ceo);
+
+  // O que a rota de acréscimo fazia: criar a linha sem reserva nenhuma.
+  db.prepare('INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents) VALUES (?,?,?,?)')
+    .run(kit.id, recem.id, 1, 6000);
+
+  const err = (() => { try { kitService.ensureStockReservation(kit.id, semSaldo.id, 1); return null; } catch (e) { return e.message; } })();
+  assert.match(err || '', /Estoque insuficiente/);
+
+  const delivered = kitService.confirmDelivery(kit.id, ceo);
+  assert.equal(delivered.status, 'entregue');
+  assert.equal(delivered.items.find((x) => x.product_id === recem.id).quantity_available, 1);
+  const saldoA = db.prepare('SELECT COALESCE(SUM(quantity),0) as bal FROM stock_movements WHERE product_id = ?').get(naBolsa.id).bal;
+  const saldoB = db.prepare('SELECT COALESCE(SUM(quantity),0) as bal FROM stock_movements WHERE product_id = ?').get(recem.id).bal;
+  assert.equal(saldoA, 2, '4 na empresa - 2 entregues');
+  assert.equal(saldoB, 2, '3 na empresa - 1 entregue, a linha nova saiu do estoque de verdade');
+  const sobrando = db.prepare("SELECT COALESCE(SUM(quantity),0) as q FROM stock_reservations WHERE status = 'ativa'").get().q;
+  assert.equal(sobrando, 0, 'tudo virou entrega, nada ficou reservado');
+});

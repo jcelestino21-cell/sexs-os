@@ -74,6 +74,29 @@ function companyFreeForReservation(productId) {
   return companyAvailableBalance(productId) - companyReservedBalance(productId);
 }
 
+/** Garante que existam `qty` unidades reservadas para (kit, produto) e devolve quanto criou.
+ * Uma linha acrescentada DEPOIS da aprovação (rota administrativa de acréscimo) entrava sem
+ * reserva, e a entrega conferia reserva linha por linha — o kit ficava travado em "reserva
+ * inconsistente" exatamente no dia de sair, com erro que mandava falar com o suporte. Aqui a
+ * reserva é criada na hora, desde que o saldo da empresa cubra; se não cobrir, o erro diz
+ * quantas unidades faltam. */
+function ensureStockReservation(kitId, productId, qty) {
+  const ativa = db.prepare(`
+    SELECT COALESCE(SUM(quantity),0) as r FROM stock_reservations
+    WHERE kit_id = ? AND product_id = ? AND status = 'ativa'
+  `).get(kitId, productId).r;
+  const falta = (qty || 0) - ativa;
+  if (falta <= 0) return 0;
+  const balanco = companyAvailableBalance(productId);
+  if (balanco < falta) {
+    const nome = db.prepare('SELECT name FROM products WHERE id = ?').get(productId);
+    throw new Error(`Estoque insuficiente de "${(nome && nome.name) || ('produto #' + productId)}": há ${balanco} un. na empresa e faltam ${falta} un. para este kit.`);
+  }
+  db.prepare(`INSERT INTO stock_reservations (product_id, kit_id, quantity, status) VALUES (?,?,?,'ativa')`)
+    .run(productId, kitId, falta);
+  return falta;
+}
+
 function lastKnownUnitCost(productId) {
   const row = db.prepare('SELECT unit_cost_cents FROM stock_lots WHERE product_id = ? ORDER BY id DESC LIMIT 1').get(productId);
   return row ? row.unit_cost_cents : null;
@@ -256,10 +279,9 @@ function confirmDelivery(kitId, ceoUser) {
   db.exec('BEGIN');
   try {
     for (const item of kit.items) {
-      const reserved = db.prepare(`SELECT COALESCE(SUM(quantity),0) as r FROM stock_reservations WHERE kit_id = ? AND product_id = ? AND status = 'ativa'`).get(kitId, item.product_id);
-      if (reserved.r < item.quantity_suggested) {
-        throw new Error(`Reserva de estoque de "${item.product_name}" inconsistente — entre em contato com o suporte antes de prosseguir.`);
-      }
+      // Linha que entrou depois da aprovação chega sem reserva; aqui ela é completada.
+      // Se o saldo da empresa não cobrir, ensureStockReservation diz quantas unidades faltam.
+      ensureStockReservation(kitId, item.product_id, item.quantity_suggested);
       const available = companyAvailableBalance(item.product_id);
       const newBalance = available - item.quantity_suggested;
       db.prepare(
@@ -919,7 +941,7 @@ function reverseSale({ kitSaleId, actorUser, note, asCeo = false }) {
 }
 
 module.exports = {
-  getKit, listKits, suggestKit, companyAvailableBalance, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
+  getKit, listKits, suggestKit, ensureStockReservation, companyAvailableBalance, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
   informSale, decideSale, reverseSale, addDeliveredItem, reattributeItemToClosedKit, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
   getReconciliationDraft, saveReconciliationItem,
   rankingFull, rankingForReseller,
