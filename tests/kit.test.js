@@ -227,3 +227,69 @@ test('linha acrescentada depois da aprovação não trava a entrega (e não rese
   const sobrando = db.prepare("SELECT COALESCE(SUM(quantity),0) as q FROM stock_reservations WHERE status = 'ativa'").get().q;
   assert.equal(sobrando, 0, 'tudo virou entrega, nada ficou reservado');
 });
+
+test('realocar unidades entre linhas do mesmo kit corrige o rótulo sem tocar no estoque', async () => {
+  const ceo = makeUser('ceo');
+  seedRule(ceo.id);
+  const beijavel = await buyStock(ceo, 'Reassign Beijavel', 20, 400);
+  const satisf = await buyStock(ceo, 'Reassign Satisf', 5, 312);
+  const { resellerId, resellerUser } = await hireReseller(ceo, 'ReassignRev');
+
+  const kit = kitService.suggestKit({ resellerId, items: [{ product_id: beijavel.id, quantity: 8 }], userId: ceo.id });
+  kitService.approveKit(kit.id, ceo);
+  const delivered = kitService.confirmDelivery(kit.id, ceo);
+  // 1 vendida: só as 7 que sobram podem ser realocadas.
+  kitService.informSale({ kitItemId: delivered.items[0].id, quantity: 1, resellerUser });
+  kitService.requestClosure(kit.id, ceo);
+  const linhaId = kitService.getKit(kit.id).items[0].id;
+  kitService.saveReconciliationItem({
+    kitId: kit.id, kitItemId: linhaId, ceoUser: ceo,
+    values: { quantity_sold_confirmed: 1, quantity_returned: 7, quantity_kept_authorized: 0, quantity_damaged: 0, quantity_lost: 0, quantity_divergence: 0 },
+  });
+
+  assert.throws(() => kitService.reassignKitItemUnits({
+    kitId: kit.id, fromProductId: beijavel.id, toProductId: satisf.id, quantity: 8, ceoUser: ceo,
+  }), /Só há 7 unidade/);
+  assert.throws(() => kitService.reassignKitItemUnits({
+    kitId: kit.id, fromProductId: beijavel.id, toProductId: satisf.id, quantity: 3, ceoUser: ceo,
+  }), /não tem preço de venda/);
+  assert.throws(() => kitService.reassignKitItemUnits({
+    kitId: kit.id, fromProductId: beijavel.id, toProductId: beijavel.id, quantity: 1, ceoUser: ceo,
+  }), /origem e de destino são o mesmo/);
+
+  const corrigido = kitService.reassignKitItemUnits({
+    kitId: kit.id, fromProductId: beijavel.id, toProductId: satisf.id, quantity: 3,
+    unitPriceCents: 936, ceoUser: ceo, note: '3 das 8 eram Satisfaction',
+  });
+  const linhaB = corrigido.items.find((i) => i.product_id === beijavel.id);
+  const linhaS = corrigido.items.find((i) => i.product_id === satisf.id);
+  assert.equal(linhaB.quantity_delivered, 5);
+  assert.equal(linhaB.quantity_available, 4);
+  assert.equal(linhaB.quantity_pending_closure, 1, 'a venda informada fica na linha original');
+  assert.equal(linhaS.quantity_delivered, 3);
+  assert.equal(linhaS.quantity_available, 3);
+  assert.equal(linhaS.unit_sale_price_cents, 936);
+  assert.equal(corrigido.items.reduce((sum, i) => sum + i.quantity_delivered, 0), 8, 'nenhuma unidade se perdeu');
+
+  const balB = db.prepare('SELECT COALESCE(SUM(quantity),0) as b FROM stock_movements WHERE product_id = ?').get(beijavel.id).b;
+  const balS = db.prepare('SELECT COALESCE(SUM(quantity),0) as b FROM stock_movements WHERE product_id = ?').get(satisf.id).b;
+  assert.equal(balB, 12, 'realocação não inventa nem estorna caixa');
+  assert.equal(balS, 5);
+  const rascunho = db.prepare('SELECT COUNT(*) as n FROM kit_item_reconciliations WHERE kit_id = ?').get(kit.id).n;
+  assert.equal(rascunho, 0, 'a conferência das duas linhas é descartada para ser refeita');
+
+  // E o fechamento continua coerente depois da correção: conferir 5 = 1 vendida + 4 mantidas.
+  kitService.saveReconciliationItem({
+    kitId: kit.id, kitItemId: linhaB.id, ceoUser: ceo,
+    values: { quantity_sold_confirmed: 1, quantity_returned: 0, quantity_kept_authorized: 4, quantity_damaged: 0, quantity_lost: 0, quantity_divergence: 0 },
+  });
+  kitService.saveReconciliationItem({
+    kitId: kit.id, kitItemId: linhaS.id, ceoUser: ceo,
+    values: { quantity_sold_confirmed: 0, quantity_returned: 0, quantity_kept_authorized: 3, quantity_damaged: 0, quantity_lost: 0, quantity_divergence: 0 },
+  });
+  const { kit: fechado } = kitService.approveClosure(kit.id, ceo);
+  assert.equal(fechado.status, 'encerrado');
+  assert.equal(fechado.items.find((i) => i.product_id === satisf.id).quantity_kept_by_reseller, 3);
+  assert.equal(db.prepare('SELECT COALESCE(SUM(quantity),0) as b FROM stock_movements WHERE product_id = ?').get(beijavel.id).b, 12,
+    'nada voltou ao depósito: as 4 unidades ficam com ela, não viram devolução');
+});

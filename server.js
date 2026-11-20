@@ -2696,6 +2696,26 @@ router.post('/api/admin/fix-kit-item-available', requireAuth(async (req, res) =>
   } catch(e) { sendJson(res, 400, { error: e.message }); }
 }, { roles: ['ceo'] }));
 
+// ADMIN: Realocar unidades entre linhas do MESMO kit (produto errado na linha, mistura de
+// fornecedor). Não mexe em estoque físico — nenhuma caixa mudou de lugar agora; muda o
+// rótulo da unidade e o que está na mão da revendedora, e descarta a conferência das duas
+// linhas para que sejam reconfenferidas antes de fechar.
+router.post('/api/admin/reassign-kit-item-units', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const kit = kitService.reassignKitItemUnits({
+      kitId: Number(body.kit_id),
+      fromProductId: body.from_product_id,
+      toProductId: body.to_product_id,
+      quantity: body.quantity,
+      unitPriceCents: body.unit_price_cents,
+      note: body.note,
+      ceoUser: req.user,
+    });
+    sendJson(res, 200, { ok: true, kit });
+  } catch (e) { sendJson(res, 400, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
 // ADMIN: Delete expenses by IDs
 router.post('/api/admin/delete-expenses', requireAuth(async (req, res) => {
   try {

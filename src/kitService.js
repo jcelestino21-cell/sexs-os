@@ -716,6 +716,75 @@ const fmtCents = (c) => 'R$ ' + ((c || 0) / 100).toFixed(2);
  *    (saldo inalterado), registra audit_log, reemite o documento de fechamento e
  *    notifica a CEO.
  */
+/** Remapeia unidades ENTRE LINHAS DO MESMO KIT quando a linha foi lancada com o produto
+ * errado — o clássico do fornecedor que entrega "8 Beijável" e na caixa são 4 Beijável + 3
+ * Satisfaction + 1 vendida. Move `quantity` unidades da linha de origem para a linha do
+ * produto certo, junto com o que está na mão da revendedora. NAO grava movimento de estoque:
+ * nenhuma caixa entrou ou saiu do depósito agora; o que muda é o rótulo e a contagem por
+ * produto — por isso também recusa realocar unidade que já foi vendida. A conferência das duas
+ * linhas afetadas é descartada (senão o fechamento acusaria divergência com o total novo). */
+function reassignKitItemUnits({ kitId, fromProductId, toProductId, quantity, unitPriceCents, note, ceoUser }) {
+  const kit = getKit(kitId);
+  if (!kit) throw new Error('Kit não encontrado.');
+  if (!['entregue', 'aguardando_fechamento'].includes(kit.status)) {
+    throw new Error(`Realocar unidades só faz sentido em kit ja entregue. O kit #${kit.id} está "${kit.status}".`);
+  }
+  const qty = Math.trunc(Number(quantity));
+  if (!qty || qty <= 0) throw new Error('Quantidade inválida.');
+  if (Number(fromProductId) === Number(toProductId)) throw new Error('Produto de origem e de destino são o mesmo.');
+
+  const from = kit.items.find((i) => i.product_id === Number(fromProductId));
+  if (!from) throw new Error(`Nenhuma linha deste kit aponta para o produto ${fromProductId}.`);
+  const vendidas = (from.quantity_confirmed_sold || 0) + (from.quantity_pending_closure || 0);
+  if (from.quantity_available < qty) {
+    throw new Error(`Só há ${from.quantity_available} unidade(s) de "${from.product_name}" em mãos no kit #${kit.id} (entregues ${from.quantity_delivered}, vendidas ${vendidas}) - não dá para realocar ${qty}.`);
+  }
+
+  const to = db.prepare('SELECT * FROM kit_items WHERE kit_id = ? AND product_id = ?').get(kit.id, Number(toProductId));
+  const product = db.prepare('SELECT * FROM products WHERE id = ?').get(Number(toProductId));
+  if (!product) throw new Error('Produto de destino não encontrado no catalogo.');
+  if (!product.active) throw new Error(`"${product.name}" está inativo no catalogo.`);
+  const price = (unitPriceCents === undefined || unitPriceCents === null || unitPriceCents === '')
+    ? ((to && to.unit_sale_price_cents) || product.ideal_price_cents || product.min_price_cents || 0)
+    : Math.trunc(Number(unitPriceCents));
+  if (!price || price <= 0) throw new Error(`"${product.name}" ainda não tem preço de venda - informe unit_price_cents ou defina na aba de preços.`);
+  const label = (note && String(note).trim().slice(0, 160)) || 'realocação de unidades conferida pela CEO';
+
+  db.exec('BEGIN');
+  try {
+    const deliveredAfter = from.quantity_delivered - qty;
+    const availableAfter = from.quantity_available - qty;
+    if (deliveredAfter <= 0 && vendidas === 0) {
+      // A linha inteira era do outro produto: some com ela.
+      db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_item_id = ?').run(from.id);
+      db.prepare('DELETE FROM kit_items WHERE id = ?').run(from.id);
+    } else {
+      db.prepare(`UPDATE kit_items SET quantity_suggested = MAX(quantity_suggested - ?, ?), quantity_delivered = ?, quantity_available = ? WHERE id = ?`)
+        .run(qty, deliveredAfter, deliveredAfter, availableAfter, from.id);
+      db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_item_id = ?').run(from.id);
+    }
+
+    if (to) {
+      db.prepare(`UPDATE kit_items SET quantity_suggested = quantity_suggested + ?, quantity_delivered = quantity_delivered + ?, quantity_available = quantity_available + ?, unit_sale_price_cents = ? WHERE id = ?`)
+        .run(qty, qty, qty, price, to.id);
+      db.prepare('DELETE FROM kit_item_reconciliations WHERE kit_item_id = ?').run(to.id);
+    } else {
+      db.prepare(`INSERT INTO kit_items (kit_id, product_id, quantity_suggested, unit_sale_price_cents, quantity_delivered, quantity_available) VALUES (?,?,?,?,?,?)`)
+        .run(kit.id, product.id, qty, price, qty, qty);
+    }
+
+    logAudit({
+      actorUserId: ceoUser.id, actorLabel: 'CEO', action: 'kit.item_units_reassigned', entityType: 'kit', entityId: kit.id,
+      details: { from_product_id: from.product_id, to_product_id: product.id, quantity: qty, price_cents: price, note: label },
+    });
+    db.exec('COMMIT');
+    return getKit(kitId);
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 function reattributeItemToClosedKit({ fromKitId, toKitId, productId, quantity, unitPriceCents, note, actorUser }) {
   const qty = Math.trunc(Number(quantity));
   if (!qty || qty <= 0) throw new Error('Quantidade inválida.');
@@ -942,7 +1011,7 @@ function reverseSale({ kitSaleId, actorUser, note, asCeo = false }) {
 
 module.exports = {
   getKit, listKits, suggestKit, ensureStockReservation, companyAvailableBalance, approveKit, rejectKit, cancelApprovedKit, startPreparation, confirmDelivery,
-  informSale, decideSale, reverseSale, addDeliveredItem, reattributeItemToClosedKit, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
+  informSale, decideSale, reverseSale, addDeliveredItem, reassignKitItemUnits, reattributeItemToClosedKit, requestClosure, reopenClosure, approveClosure, pendingSalesForReview,
   getReconciliationDraft, saveReconciliationItem,
   rankingFull, rankingForReseller,
 };
