@@ -43,6 +43,28 @@ db.exec(`CREATE TABLE IF NOT EXISTS fixed_expenses (
   due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31), active INTEGER NOT NULL DEFAULT 1,
   created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`);
+// Vínculo produto ↔ fornecedor. Nascido da necessidade da CEO de saber ONDE comprar cada
+// item: o cadastro guarda um internal_code solto, mas não guarda de qual fornecedor ele é,
+// nem o link, nem o preço que o fornecedor praticava quando o vínculo foi confirmado. Aqui
+// vive isso — e a aba de Inteligência de Compra só compara preço entre fornecedores quando
+// a linha tem vínculo confirmado por ela (linked_by) ou referência batendo com o site.
+db.exec(`CREATE TABLE IF NOT EXISTS product_supplier_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  supplier TEXT NOT NULL,
+  supplier_ref TEXT,
+  supplier_url TEXT,
+  sku_id TEXT,
+  observed_cost_cents INTEGER,
+  supplier_stock INTEGER,
+  note TEXT,
+  linked_by INTEGER REFERENCES users(id),
+  observed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(product_id, supplier)
+)`);
+
 // Cadastros iniciais solicitados pela CEO (idempotente).
 const ceo = db.prepare("SELECT id FROM users WHERE username='ceo'").get();
 if (ceo) {
@@ -3284,6 +3306,104 @@ router.post('/api/admin/update-product-names', requireAuth(async (req, res) => {
     sendJson(res, 500, { error: e.message });
   }
 }, { roles: ['ceo'] }));
+
+// -----------------------------------------------------------------------------
+// ADMIN: vínculo produto ↔ fornecedor (base da aba de Inteligência de Compra)
+// Grava de qual fornecedor vem cada produto, com a referência, o link, o preço e o
+// estoque que o site do fornecedor mostrava no momento em que foi lido. NÃO toca em
+// preço de venda, estoque próprio nem despesa — é cadastro de origem, só isso.
+// Quando o fornecedor é o Atacadão e a linha traz mirror_internal_code (padrão: sim),
+// a referência também é espelhada em products.internal_code, que é onde a CEO já
+// anota esses códigos hoje (58135-TUT, 95171-MOR...).
+// -----------------------------------------------------------------------------
+const SUPPLIERS_CONHECIDOS = new Set(['atacadao', 'gall', 'outro']);
+const limpaTexto = (v, max) => (v === undefined || v === null ? null : String(v).replace(/\s+/g, ' ').trim().slice(0, max) || null);
+const inteiro = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n) : null;
+};
+
+router.post('/api/admin/supplier-links', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const links = body.links;
+    if (!Array.isArray(links)) return sendJson(res, 400, { error: 'links deve ser um array' });
+
+    let saved = 0;
+    const skipped = [];
+    for (const l of links) {
+      const productId = Number(l.product_id);
+      const supplier = String(l.supplier || '').trim().toLowerCase();
+      if (!Number.isFinite(productId) || productId <= 0) {
+        skipped.push({ product_id: l.product_id, motivo: 'product_id inválido' }); continue;
+      }
+      const produto = db.prepare('SELECT id, name, internal_code FROM products WHERE id = ?').get(productId);
+      if (!produto) { skipped.push({ product_id: productId, motivo: 'produto não encontrado' }); continue; }
+      if (!SUPPLIERS_CONHECIDOS.has(supplier)) {
+        skipped.push({ product_id: productId, supplier: l.supplier, motivo: 'fornecedor deve ser atacadao, gall ou outro' }); continue;
+      }
+      const ref = limpaTexto(l.supplier_ref, 80);
+      const url = limpaTexto(l.supplier_url, 400);
+      if (!ref && !url) {
+        skipped.push({ product_id: productId, supplier, motivo: 'sem supplier_ref nem supplier_url' }); continue;
+      }
+      db.prepare(`INSERT INTO product_supplier_links
+          (product_id, supplier, supplier_ref, supplier_url, sku_id, observed_cost_cents, supplier_stock, note, linked_by, observed_at)
+          VALUES (?,?,?,?,?,?,?,?,?,datetime('now'))
+          ON CONFLICT(product_id, supplier) DO UPDATE SET
+            supplier_ref = excluded.supplier_ref,
+            supplier_url = excluded.supplier_url,
+            sku_id = excluded.sku_id,
+            observed_cost_cents = excluded.observed_cost_cents,
+            supplier_stock = excluded.supplier_stock,
+            note = excluded.note,
+            linked_by = excluded.linked_by,
+            observed_at = datetime('now'),
+            updated_at = datetime('now')`)
+        .run(productId, supplier, ref, url, limpaTexto(l.sku_id, 40), inteiro(l.observed_cost_cents),
+             inteiro(l.supplier_stock), limpaTexto(l.note, 400), req.user.id);
+
+      let espelhado = false;
+      if (supplier === 'atacadao' && ref && l.mirror_internal_code !== false && produto.internal_code !== ref) {
+        db.prepare('UPDATE products SET internal_code = ? WHERE id = ?').run(ref, productId);
+        espelhado = true;
+      }
+      saved += 1;
+      logAudit({
+        actorUserId: req.user.id, actorLabel: req.user.name, action: 'product.supplier_link_saved',
+        entityType: 'product', entityId: productId,
+        details: { supplier, supplier_ref: ref, sku_id: limpaTexto(l.sku_id, 40), preco_lido_cents: inteiro(l.observed_cost_cents),
+                   estoque_fornecedor: inteiro(l.supplier_stock), internal_code_anterior: produto.internal_code || null,
+                   espelhou_internal_code: espelhado, nome: produto.name },
+      });
+    }
+    sendJson(res, 200, { ok: true, saved, skipped });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+router.get('/api/admin/supplier-links', requireAuth(async (req, res) => {
+  try {
+    const links = db.prepare(`
+      SELECT psl.*, p.name AS product_name, p.internal_code, p.last_purchase_cost_cents
+      FROM product_supplier_links psl JOIN products p ON p.id = psl.product_id
+      ORDER BY p.name, psl.supplier`).all();
+    const semVinculo = db.prepare(`
+      SELECT p.id, p.name, p.internal_code, p.active FROM products p
+      WHERE p.active = 1 AND p.id NOT IN (SELECT product_id FROM product_supplier_links)
+      ORDER BY p.name`).all();
+    sendJson(res, 200, {
+      suppliers: ['atacadao', 'gall', 'outro'],
+      total_produtos: db.prepare('SELECT COUNT(*) AS c FROM products').get().c,
+      produtos_com_vinculo: new Set(links.map((l) => l.product_id)).size,
+      links, sem_vinculo: semVinculo,
+    });
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
 
 // PUBLIC: catálogo da cliente final (sem login). Serve só o que a vitrine precisa:
 // nome, categoria, descrição, foto e quem consegue entregar — nada de preço, custo,
