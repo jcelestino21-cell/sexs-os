@@ -414,6 +414,38 @@ function switchTab(tab) {
 // revendedoras e o custo é o último que a CEO pagou (marcado como tal).
 var PP = { dados: null, filtro: 'todos', ocupado: false };
 
+function ppBlocoCarrinhos(d) {
+  var fs = (d.fornecedores || []).filter(function (f) { return f.fornecedor !== 'sem vínculo'; });
+  if (!fs.length) return '';
+  var brl = function (c) { return c == null ? '—' : 'R$ ' + (c / 100).toFixed(2); };
+  var h = '<div style="border:1px solid var(--bd);border-radius:var(--r2);padding:10px 12px;margin-bottom:10px">' +
+    '<div style="font-weight:700;font-size:13px;margin-bottom:8px">🛒 Onde montar cada carrinho</div>';
+  fs.forEach(function (f) {
+    h += '<div style="margin-bottom:8px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<b style="font-size:13px">' + esc(f.fornecedor) + '</b>' +
+      '<span style="font-size:11px;color:var(--t3)">' + f.produtos.length + ' produto(s) · ' + f.unidades +
+      ' un · ' + brl(f.custo_cents) + '</span>' +
+      (f.link_carrinho ? '<button class="btn-sm" onclick="ppAbrirCarrinho(\'' + f.fornecedor.replace(/'/g, '') +
+        '\')">abrir carrinho com tudo ↗</button>' : '') +
+      (f.link_carrinho ? '' : '<span style="font-size:11px;color:var(--t3)">a ' + esc(f.fornecedor) +
+        ' não tem link de carrinho — clique item a item</span>') + '</div>';
+    (f.produtos || []).forEach(function (x) {
+      h += '<div style="font-size:12px;padding:2px 0 2px 10px;border-left:2px solid var(--bd);margin-left:2px">' +
+        esc(x.quantity) + '× ' + esc(x.name) + ' · ' + brl(x.custo_unit_cents) + ' un · pra ' +
+        esc((x.para || []).join(', ') || '—') + (x.estoque === 0 ? ' · <span style="color:#b91c1c">SEM ESTOQUE no fornecedor</span>' : '') +
+        (x.url ? ' · <a href="' + x.url + '" target="_blank" rel="noopener">link</a>' : '') + '</div>';
+    });
+    h += '</div>';
+  });
+  if (f_sem_vinculo(d).length) {
+    h += '<div style="font-size:11px;color:var(--t3);border-top:1px dashed var(--bd);padding-top:6px">' +
+      '⚠ itens sem vínculo não estão aqui porque ainda não sei em qual site eles existem — ' +
+      f_sem_vinculo(d).length + ' produto(s) aguardando você colar o link (lista no fim da tela).</div>';
+  }
+  return h + '</div>';
+}
+function f_sem_vinculo(d) { return (d && d.sem_vinculo_com_link) || []; }
+
 async function renderPurchasePlan() {
   var v = $('#v-purchase'); if (!v) return;
   if (!PP.dados) v.innerHTML = '<div class="panel"><div class="empty">Lendo o plano de compra, o Atacadão e a Gall…</div></div>';
@@ -534,6 +566,7 @@ function paintPurchasePlan() {
     '<div style="font-size:11px;color:var(--t3);margin-bottom:10px">Cobertura: <b>' + (d.regra.cobertura_meses || 1) +
     ' mês</b> de venda · quantidade: ' + esc(d.regra.quantidade_vem_de) + ' · sem vínculo: ' +
     esc(d.regra.sem_vinculo_usa) + ' · gerado ' + hora((d.gerado_em || '').replace('T', ' ')) + ' UTC</div>' +
+    ppBlocoCarrinhos(d) +
     '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' +
     botoes.map(function (b) {
       var on = PP.filtro === b.k;
@@ -606,9 +639,27 @@ function paintPurchasePlan() {
       '🔗 ' + semV.length + ' produto(s) sem vínculo com fornecedor</div>' +
       '<div style="font-size:12px;color:var(--t2)">Sem o link do fornecedor eu não consigo dizer onde está mais barato — ' +
       'esses preços vêm do seu último custo pago e a quantidade, do histórico das revendedoras. Mande o link de cada um ' +
-      '(ou o nome no site) que eu cadastro o vínculo e a próxima leitura já sai comparada.</div></div>';
+      '(ou o nome no site) que eu cadastro o vínculo e a próxima leitura já sai comparada.</div>' +
+      '<div style="margin-top:8px">' + ((d.sem_vinculo_com_link || []).map(function (x) {
+        return '<div style="font-size:12px;padding:3px 0;border-bottom:1px solid var(--bd)">' +
+          esc(x.qtd) + '× <b>' + esc(x.name) + '</b> · pra ' + esc((x.para || []).join(', ') || '—') +
+          ' · ' + (x.custo_unit_cents == null ? 'sem custo' : 'R$ ' + (x.custo_unit_cents / 100).toFixed(2) + ' no último pago') +
+          ' · <a href="' + x.link_produto + '" target="_blank" rel="noopener">abrir no site ↗</a>' +
+          ' <span style="color:var(--t3);font-size:11px">(' + esc(x.qtd_motivo || '') + ')</span></div>';
+      }).join('')) + '</div></div>';
   }
   v.innerHTML = h;
+}
+
+function ppAbrirCarrinho(fornecedor) {
+  var d = PP.dados || {};
+  var f = (d.fornecedores || []).filter(function (x) { return x.fornecedor === fornecedor; })[0];
+  if (!f) { toast('fornecedor não encontrado'); return; }
+  if (f.link_carrinho) { window.open(f.link_carrinho, '_blank', 'noopener'); return; }
+  // A Gall não tem deep link de carrinho: abro o primeiro item e listo os outros para clicar.
+  var u = (f.produtos || []).map(function (x) { return x.url; }).filter(Boolean)[0];
+  if (u) { window.open(u, '_blank', 'noopener'); toast('abrindo 1 de ' + (f.produtos.length) + ' — os outros estão no bloco do carrinho abaixo'); }
+  else toast('nenhum item desse fornecedor tem link cadastrado');
 }
 
 // ===== DASHBOARD =====

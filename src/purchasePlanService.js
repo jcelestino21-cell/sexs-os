@@ -23,6 +23,25 @@
 //    refresh só atualiza observed_* da tabela de vínculos, que é cache de leitura.
 // ============================================================================
 const db = require('../db');
+// A tabela de vínculos nasce no server.js, mas este serviço precisa dela para existir
+// também quando é carregado fora do servidor (testes, scripts). Idempotente.
+db.exec(`CREATE TABLE IF NOT EXISTS product_supplier_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  supplier TEXT NOT NULL,
+  supplier_ref TEXT,
+  supplier_url TEXT,
+  sku_id TEXT,
+  observed_cost_cents INTEGER,
+  supplier_stock INTEGER,
+  note TEXT,
+  linked_by INTEGER REFERENCES users(id),
+  observed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(product_id, supplier)
+)`);
+
 const kitPlanService = require('./kitPlanService');
 
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
@@ -186,11 +205,19 @@ async function atualizarPrecos({ only = null, limite = 60 } = {}) {
   return { lidos: resultados.length, ok: resultados.filter((r) => r.ok).length, atualizados: resultados.filter((r) => r.gravado).length, resultados };
 }
 
+/** Última URL de fornecedor que a CEO confirmou para o produto (qualquer um dos dois). */
+function url_conhecida(productId) {
+  const r = db.prepare(`SELECT supplier_url FROM product_supplier_links
+                         WHERE product_id = ? AND supplier_url IS NOT NULL AND supplier_url <> ''
+                         ORDER BY supplier DESC LIMIT 1`).get(productId);
+  return (r && r.supplier_url) || null;
+}
+
 function linhaCusto(l) {
   if (!l) return null;
   const idade = l.observed_at ? Math.round((Date.now() - new Date(l.observed_at.replace(' ', 'T') + 'Z').getTime()) / 60000) : null;
   return { fornecedor: l.supplier, custo_cents: l.observed_cost_cents, estoque: l.supplier_stock,
-           referencia: l.supplier_ref, url: l.supplier_url, lido_em: l.observed_at, idade_min: idade,
+           referencia: l.supplier_ref, sku_id: l.sku_id || null, url: l.supplier_url, lido_em: l.observed_at, idade_min: idade,
            velho: idade != null && idade > PRAZO_FRESCO_MINUTOS, nota: l.note };
 }
 
@@ -235,7 +262,7 @@ function montarLista(plano, links, historico) {
       economia_unit_cents: opcoes.length > 1 ? economia_cents : 0,
       economia_total_cents: opcoes.length > 1 ? economia_cents * qtd : 0,
       opcoes: opcoes.map((o) => ({ fornecedor: o.nome_fornecedor, custo_cents: o.custo_cents, estoque: o.estoque,
-                                   url: o.url, lido_em: o.lido_em, velho: o.velho, nota: o.nota })),
+                                   sku_id: o.sku_id || null, url: o.url, lido_em: o.lido_em, velho: o.velho, nota: o.nota })),
       origem_preco: indicado ? 'fornecedor' : 'histórico',
       qtd_por_historico: qtdHist || null, qtd_motivo,
       comparavel: opcoes.length > 1,
@@ -287,12 +314,27 @@ function buildPurchasePlan({ refresh = false } = {}) {
   const porFornecedor = {};
   for (const l of linhas) {
     const chave = l.fornecedor_indicado || 'sem vínculo';
-    const b = (porFornecedor[chave] ||= { fornecedor: chave, unidades: 0, custo_cents: 0, produtos: [], link: null });
+    const b = (porFornecedor[chave] ||= { fornecedor: chave, unidades: 0, custo_cents: 0, produtos: [], link: null,
+                                          link_carrinho: null, skus: [] });
     b.unidades += l.quantity;
     b.custo_cents += l.custo_total_cents || 0;
     b.produtos.push({ product_id: l.product_id, name: l.name, quantity: l.quantity, custo_unit_cents: l.custo_unit_cents,
                       para: l.para, url: l.fornecedor_url, ref: l.fornecedor_ref, estoque: l.fornecedor_estoque });
     if (l.fornecedor_url && !b.link) b.link = l.fornecedor_url;
+    // SKU do fornecedor (só existe quando a leitura da página dele respondeu) → monta link de carrinho
+    const op = (l.opcoes || []).find((o) => o.fornecedor === chave
+        || (chave === 'outro' && /Mercado Livre/.test(o.fornecedor || '')));
+    if (op && op.sku_id) b.skus.push({ sku_id: op.sku_id, quantity: l.quantity, name: l.name });
+  }
+  // Atacadão é VTEX/FastStore: aceita o padrão SKUList=/<sku>/<qtd>/ na rota /cart.
+  // A Gall não expõe nada equivalente (o carrinho dela só aceita escrita pela API da conta),
+  // então ali o link é o do produto de cada linha, um por um.
+  for (const b of Object.values(porFornecedor)) {
+    if (b.fornecedor === 'Atacadão Sexy Shop' && b.skus.length) {
+      b.link_carrinho = 'https://www.sexshopatacadao.com.br/cart?SKUList='
+        + b.skus.map((s) => '/' + s.sku_id + '/' + s.quantity + '/').join('') + '&sc=1';
+    }
+    delete b.skus;
   }
   const total_cents = linhas.reduce((s, l) => s + (l.custo_total_cents || 0), 0);
   // Economia real: se ela comprasse tudo no fornecedor mais caro daquele item.
@@ -313,6 +355,13 @@ function buildPurchasePlan({ refresh = false } = {}) {
               custo_cents: total_cents, comparaveis: linhas.filter((l) => l.comparavel).length,
               sem_vinculo: semVinculo.length, tudo_no_caro_cents, economia_cents },
     fornecedores: Object.values(porFornecedor).sort((a, b) => b.custo_cents - a.custo_cents),
+    // O que ainda não tem vínculo, com o link do último fornecedor que ela mesma mandou:
+    // é a fila de "cole o link aqui" — a tela não tem campo para gravar vínculo, só eu.
+    sem_vinculo_com_link: semVinculo.map((l) => ({
+      product_id: l.product_id, name: l.name, qtd: l.quantity, para: l.para,
+      custo_unit_cents: l.custo_unit_cents, qtd_motivo: l.qtd_motivo,
+      link_produto: url_conhecida(l.product_id) || 'https://www.gall.com.br/busca?s=' + encodeURIComponent(l.name),
+    })),
     giro_alto_fora_do_plano: giroAlto.slice(0, 40),
     linhas,
     simulador: { totals: plano.totals, buy_totals: plano.buy_totals, rules: plano.rules, queue: plano.queue, alertas: plano.alertas },
