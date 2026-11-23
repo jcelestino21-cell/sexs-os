@@ -180,10 +180,10 @@ async function atualizarPrecos({ only = null, limite = 60 } = {}) {
       }
       resultados.push({ product_id: r.product_id, fornecedor: r.supplier, ok: !!r.lido.ok,
                         custo_cents: r.lido.ok ? r.lido.custo_cents : null, estoque: r.lido.estoque ?? null,
-                        erro: r.lido.erro || null,_guardado: !!(r.lido.ok && r.lido.custo_cents != null) });
+                        erro: r.lido.erro || null, gravado: !!(r.lido.ok && r.lido.custo_cents != null) });
     }
   }
-  return { lidos: resultados.length, ok: resultados.filter((r) => r.ok).length, atualizados: resultados.filter((r) => r._guardado).length, resultados };
+  return { lidos: resultados.length, ok: resultados.filter((r) => r.ok).length, atualizados: resultados.filter((r) => r.gravado).length, resultados };
 }
 
 function linhaCusto(l) {

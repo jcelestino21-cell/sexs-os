@@ -341,6 +341,7 @@ async function renderApp() {
     if (can('stock:read')) tabs.push({k:'stock',l:'📦 Estoque'});
     
     if (S.user.role === 'ceo') tabs.push({k:'audit',l:'Auditoria'});
+    if (S.user.role === 'ceo') tabs.push({k:'purchase',l:'🧠 Inteligência de Compra'});
 
     var root = $('#app');
     root.innerHTML = '<div class="hdr"><div class="hdr-brand"><img src="/logo-sm.png" alt="SexS" class="hdr-logo" /><div><div class="hdr-title">Central da CEO</div><div class="hdr-sub">Bem-vinda' + (S.user.role==='ceo'?'':', '+esc(S.user.name)) + '</div></div></div><div class="hdr-actions"><button class="logout" onclick="logout()">sair</button></div></div>' +
@@ -400,9 +401,214 @@ function switchTab(tab) {
     kitdetails:renderKitDetails,
     resellerMsgs:renderResellerMessages,
     audit:renderAudit,
-    'mentor-portals':renderMentorPortals
+    'mentor-portals':renderMentorPortals,
+    'purchase':renderPurchasePlan
   };
   if (r[tab]) r[tab]();
+}
+
+// ===================== INTELIGÊNCIA DE COMPRA AO FORNECEDOR =====================
+// A pergunta que esta tela responde, na ordem: o que pedir → onde está mais barato →
+// em qual carrinho eu monto → para qual revendedora vai. Produto sem vínculo com
+// fornecedor NÃO some da lista: a quantidade dele vem do histórico de venda das
+// revendedoras e o custo é o último que a CEO pagou (marcado como tal).
+var PP = { dados: null, filtro: 'todos', ocupado: false };
+
+async function renderPurchasePlan() {
+  var v = $('#v-purchase'); if (!v) return;
+  if (!PP.dados) v.innerHTML = '<div class="panel"><div class="empty">Lendo o plano de compra, o Atacadão e a Gall…</div></div>';
+  try {
+    PP.dados = await api('/api/admin/purchase-plan');
+    PP.erro = null;
+    paintPurchasePlan();
+  } catch (e) {
+    v.innerHTML = '<div class="panel"><div class="empty">Não consegui montar o plano: ' + esc(e.message) + '</div></div>';
+  }
+}
+
+function ppFiltro(k) { PP.filtro = k; paintPurchasePlan(); }
+
+async function ppAtualizarPrecos() {
+  if (PP.ocupado) return;
+  PP.ocupado = true; paintPurchasePlan();
+  try {
+    var r = await api('/api/admin/purchase-plan/refresh', { method: 'POST', body: JSON.stringify({ limite: 60 }) });
+    toast('Preços: ' + r.ok + ' de ' + r.lidos + ' lidos, ' + r.atualizados + ' atualizados', 'ok');
+    PP.dados = await api('/api/admin/purchase-plan');
+  } catch (e) { toast('Falhou atualizar preços: ' + e.message); }
+  PP.ocupado = false; paintPurchasePlan();
+}
+
+function ppLinhasFiltradas() {
+  var d = PP.dados; if (!d) return [];
+  var ls = d.linhas || [];
+  if (PP.filtro === 'todos') return ls;
+  if (PP.filtro === 'sem') return ls.filter(function (l) { return l.origem_preco === 'histórico'; });
+  return ls.filter(function (l) { return l.fornecedor_indicado === PP.filtro; });
+}
+
+function ppCsv() {
+  var ls = ppLinhasFiltradas();
+  var head = ['produto', 'quantidade', 'para (revendedora)', 'custo unit.', 'total', 'fornecedor indicado',
+              'código no fornecedor', 'estoque do fornecedor', 'preço Atacadão', 'preço Gall (PIX)',
+              'economia por unidade', 'origem do preço', 'qtd por histórico', 'por que essa qtd', 'link', 'lido em'];
+  var linhas = ls.map(function (l) {
+    var at = null, ga = null;
+    (l.opcoes || []).forEach(function (o) {
+      if (/atacad/i.test(o.fornecedor)) at = o.custo_cents;
+      if (/gall/i.test(o.fornecedor)) ga = o.custo_cents;
+    });
+    return [l.name, l.quantity, (l.para || []).join(' + '), l.custo_unit_cents ? (l.custo_unit_cents / 100).toFixed(2) : '',
+            l.custo_total_cents ? (l.custo_total_cents / 100).toFixed(2) : '', l.fornecedor_indicado || 'sem vínculo',
+            l.fornecedor_ref || '', l.fornecedor_estoque == null ? '' : l.fornecedor_estoque,
+            at ? (at / 100).toFixed(2) : '', ga ? (ga / 100).toFixed(2) : '',
+            l.economia_unit_cents ? (l.economia_unit_cents / 100).toFixed(2) : '', l.origem_preco,
+            l.qtd_por_historico || '', l.qtd_motivo || '', l.fornecedor_url || '', l.lido_em || ''];
+  });
+  var csv = head.join(';') + '\n' + linhas.map(function (r) {
+    return r.map(function (c) { return '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"'; }).join(';');
+  }).join('\n');
+  var blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'compra_' + (PP.filtro === 'todos' ? 'todos' : PP.filtro.replace(/\W+/g, '_')) + '_' + new Date().toISOString().slice(0, 10) + '.csv';
+  a.click();
+  toast('CSV com ' + linhas.length + ' linhas baixado', 'ok');
+}
+
+function ppZap() {
+  var d = PP.dados; if (!d) return;
+  var grupos = {};
+  ppLinhasFiltradas().forEach(function (l) {
+    var k = l.fornecedor_indicado || 'sem vínculo (definir com o fornecedor)';
+    (grupos[k] = grupos[k] || []).push(l);
+  });
+  var txt = '🛒 COMPRA DE HOJE — SexS\n';
+  Object.keys(grupos).forEach(function (k) {
+    var un = 0, cus = 0;
+    grupos[k].forEach(function (l) { un += l.quantity; cus += l.custo_total_cents || 0; });
+    txt += '\n*' + k + '* — ' + un + ' un · R$ ' + (cus / 100).toFixed(2) + '\n';
+    grupos[k].forEach(function (l) {
+      txt += '• ' + l.name + ' — ' + l.quantity + ' un' + (l.custo_unit_cents ? ' (R$ ' + (l.custo_unit_cents / 100).toFixed(2) + ')' : '') +
+        ((l.para || []).length ? ' → ' + l.para.join(', ') : '') + '\n';
+    });
+  });
+  txt += '\nEconomia comprando cada item no mais barato: R$ ' + ((d.totais.economia_cents || 0) / 100).toFixed(2);
+  txt += '\nCobertura: ' + (d.regra.cobertura_meses || 1) + ' mês de venda · preços lidos em ' + (d.gerado_em || '').slice(0, 16).replace('T', ' ');
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}
+
+function paintPurchasePlan() {
+  var v = $('#v-purchase'); if (!v || !PP.dados) return;
+  var d = PP.dados, t = d.totais || {};
+  var brl = function (c) { return c == null ? '—' : 'R$ ' + (c / 100).toFixed(2); };
+  var chips = function (arr) { return (arr || []).join(', ') || '—'; };
+  var hora = function (s) { return s ? String(s).slice(5, 16) : '—'; };
+
+  var botoes = [{ k: 'todos', l: 'Tudo (' + (d.linhas || []).length + ')' }];
+  (d.fornecedores || []).forEach(function (f) {
+    if (f.fornecedor !== 'sem vínculo') botoes.push({ k: f.fornecedor, l: f.fornecedor + ' (' + f.produtos.length + ')' });
+  });
+  botoes.push({ k: 'sem', l: 'Sem vínculo (' + (t.sem_vinculo || 0) + ')' });
+
+  var card = function (rotulo, valor, cor) {
+    return '<div style="background:var(--p2);padding:12px 14px;border-radius:var(--r2);border:1px solid var(--bd)">' +
+      '<div style="font-size:10px;color:var(--t3);text-transform:uppercase;letter-spacing:1px">' + rotulo + '</div>' +
+      '<div style="font-size:20px;font-weight:700;color:' + (cor || 'var(--t1)') + ';margin-top:3px">' + valor + '</div></div>';
+  };
+
+  var h = '<div class="panel"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
+    '<div style="font-weight:700;font-size:15px">🧠 Inteligência de Compra ao fornecedor</div>' +
+    '<div style="flex:1"></div>' +
+    '<button class="btn-s" onclick="ppAtualizarPrecos()" ' + (PP.ocupado ? 'disabled' : '') + '>' +
+    (PP.ocupado ? '⏳ lendo os sites…' : '🔄 Buscar preços agora') + '</button>' +
+    '<button class="btn-s" onclick="ppCsv()">⬇ CSV</button>' +
+    '<button class="btn-s" onclick="ppZap()">📱 WhatsApp</button>' +
+    '<button class="btn-s" onclick="renderPurchasePlan()">↻ Recarregar</button></div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px">' +
+    card('Produtos a pedir', (t.produtos || 0)) + card('Unidades', (t.unidades || 0)) +
+    card('Custo do carrinho', brl(t.custo_cents)) +
+    card('Economia vs. tudo no mais caro', brl(t.economia_cents), '#16a34a') +
+    card('Comparáveis (2 fornecedores)', (t.comparaveis || 0) + ' de ' + (t.produtos || 0)) +
+    card('Sem vínculo (histórico)', (t.sem_vinculo || 0), '#b45309') + '</div>' +
+    '<div style="font-size:11px;color:var(--t3);margin-bottom:10px">Cobertura: <b>' + (d.regra.cobertura_meses || 1) +
+    ' mês</b> de venda · quantidade: ' + esc(d.regra.quantidade_vem_de) + ' · sem vínculo: ' +
+    esc(d.regra.sem_vinculo_usa) + ' · gerado ' + hora((d.gerado_em || '').replace('T', ' ')) + ' UTC</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' +
+    botoes.map(function (b) {
+      var on = PP.filtro === b.k;
+      return '<button onclick="ppFiltro(\'' + b.k.replace(/'/g, '') + '\')" style="cursor:pointer;border:1px solid ' +
+        (on ? 'var(--ac)' : 'var(--bd)') + ';background:' + (on ? 'var(--ac)' : 'var(--p2)') + ';color:' +
+        (on ? '#fff' : 'var(--t2)') + ';border-radius:999px;padding:5px 11px;font-size:12px">' + esc(b.l) + '</button>';
+    }).join('') + '</div>';
+
+  var ls = ppLinhasFiltradas();
+  if (!ls.length) {
+    h += '<div class="empty">Nada nesta lista agora — ou o simulador não vê o que comprar, ou tudo já está coberto pelo estoque.</div>';
+  } else {
+    h += '<div style="overflow-x:auto"><table style="width:100%;font-size:12px"><tr>' +
+      '<th style="text-align:left">produto</th><th>qtd</th><th style="text-align:left">pra quem</th>' +
+      '<th>custo que vou pagar</th><th style="text-align:left">fornecedor indicado</th><th>Atacadão</th><th>Gall (PIX)</th>' +
+      '<th>economia</th><th>estoque forn.</th><th>histórico</th><th style="text-align:left">por que essa qtd</th>' +
+      '<th>lido</th><th>link</th></tr>';
+    ls.forEach(function (l) {
+      var at = null, ga = null;
+      (l.opcoes || []).forEach(function (o) {
+        if (/atacad/i.test(o.fornecedor)) at = o;
+        if (/gall/i.test(o.fornecedor)) ga = o;
+      });
+      var marca = l.leitura_velha ? ' style="color:#b45309"' : '';
+      var hist = l.historico ? (l.historico.por_mes + ' un/mês · ' + l.historico.unidades + ' em ' + l.historico.meses + ' meses') : '—';
+      h += '<tr><td style="text-align:left"><b>' + esc(l.name) + '</b>' +
+        (l.fornecedor_ref ? ' <span style="color:var(--t3)">· cod ' + esc(String(l.fornecedor_ref)) + '</span>' : '') +
+        (l.codigo_cadastro ? ' <span style="color:var(--t3)">· cadastro ' + esc(String(l.codigo_cadastro)) + '</span>' : '') + '</td>' +
+        '<td><b>' + l.quantity + '</b>' + (l.qtd_por_historico && l.qtd_por_historico !== l.quantity ? '<div style="color:var(--t3);font-size:10px">hist: ' + l.qtd_por_historico + '</div>' : '') + '</td>' +
+        '<td style="text-align:left">' + esc(chips(l.para)) + '</td>' +
+        '<td><b>' + brl(l.custo_unit_cents) + '</b>' + (l.custo_total_cents ? '<div style="color:var(--t3);font-size:10px">' + brl(l.custo_total_cents) + '</div>' : '') + '</td>' +
+        '<td style="text-align:left">' + (l.origem_preco === 'fornecedor' ? esc(l.fornecedor_indicado) : '<span style="color:#b45309">sem vínculo — ' + esc(l.origem_preco) + '</span>') + '</td>' +
+        '<td>' + (at ? brl(at.custo_cents) : '—') + '</td><td>' + (ga ? brl(ga.custo_cents) : '—') + '</td>' +
+        '<td>' + (l.economia_unit_cents ? '<span style="color:#16a34a">' + brl(l.economia_unit_cents) + '/un</span>' : '—') + '</td>' +
+        '<td>' + (l.fornecedor_estoque == null ? '—' : (l.fornecedor_estoque > 9990 ? 'amplo' : l.fornecedor_estoque)) + '</td>' +
+        '<td style="font-size:10px;color:var(--t3)">' + esc(hist) + '</td>' +
+        '<td style="text-align:left;font-size:11px">' + esc(l.qtd_motivo || '') + '</td>' +
+        '<td' + marca + '>' + hora(l.lido_em) + (l.leitura_velha ? ' ⚠' : '') + '</td>' +
+        '<td>' + (l.fornecedor_url ? '<a href="' + esc(l.fornecedor_url) + '" target="_blank" rel="noopener" style="color:var(--ac)">abrir</a>' : '—') + '</td></tr>';
+      if (l.historico && l.historico.por_revendedora && l.historico.por_revendedora.length > 1) {
+        h += '<tr><td></td><td colspan="12" style="text-align:left;color:var(--t3);font-size:11px">quem gira: ' +
+          esc(l.historico.por_revendedora.map(function (r) { return r.revendedora + ' ' + r.por_mes + '/mês'; }).join(' · ')) + '</td></tr>';
+      }
+    });
+    h += '</table></div>';
+  }
+
+  h += '<div style="margin-top:8px;font-size:11px;color:var(--t3)">⚠ preço de fornecedor é leitura, não garantia: ' +
+    'vale enquanto o site não muda. A tela nunca escreve preço de venda, estoque nem despesa — só grava a leitura na tabela de vínculos.</div></div>';
+
+  var g = (d.giro_alto_fora_do_plano || []).slice(0, 14);
+  if (g.length) {
+    h += '<div class="panel" style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">' +
+      '🔥 Giram rápido, não estão no pedido de hoje</div><div style="font-size:11px;color:var(--t3);margin-bottom:8px">' +
+      'Saída comprovada das revendedoras, mas nenhuma delas está pedindo agora — vale adiantar se o fornecedor está com estoque.</div>' +
+      '<div style="overflow-x:auto"><table style="width:100%;font-size:12px"><tr><th style="text-align:left">produto</th>' +
+      '<th>un/mês</th><th>em mãos</th><th>sugestão</th><th>custo</th><th style="text-align:left">fornecedor</th>' +
+      '<th style="text-align:left">quem vende</th></tr>' +
+      g.map(function (x) {
+        return '<tr><td style="text-align:left">' + esc(x.name) + '</td><td>' + x.por_mes + '</td><td>' + x.em_maos +
+          '</td><td><b>' + x.qtd_sugerida + '</b></td><td>' + brl(x.custo_unit_cents) + '</td>' +
+          '<td style="text-align:left">' + (x.fornecedor_indicado ? esc(x.fornecedor_indicado) : '<span style="color:#b45309">sem vínculo</span>') + '</td>' +
+          '<td style="text-align:left;font-size:11px">' + esc((x.por_revendedora || []).map(function (r) { return r.revendedora + ' ' + r.unidades + 'u'; }).join(', ')) + '</td></tr>';
+      }).join('') + '</table></div></div>';
+  }
+
+  var semV = (d.linhas || []).filter(function (l) { return l.origem_preco === 'histórico'; });
+  if (semV.length) {
+    h += '<div class="panel" style="margin-top:14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">' +
+      '🔗 ' + semV.length + ' produto(s) sem vínculo com fornecedor</div>' +
+      '<div style="font-size:12px;color:var(--t2)">Sem o link do fornecedor eu não consigo dizer onde está mais barato — ' +
+      'esses preços vêm do seu último custo pago e a quantidade, do histórico das revendedoras. Mande o link de cada um ' +
+      '(ou o nome no site) que eu cadastro o vínculo e a próxima leitura já sai comparada.</div></div>';
+  }
+  v.innerHTML = h;
 }
 
 // ===== DASHBOARD =====
