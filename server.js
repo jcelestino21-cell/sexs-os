@@ -34,6 +34,7 @@ const companyService = require('./src/companyService');
 const docxGenerator = require('./src/docxGenerator');
 const ordersService = require('./src/ordersService');
 const kitPlanService = require('./src/kitPlanService');
+const purchasePlanService = require('./src/purchasePlanService');
 const { hasCapability, capabilitiesFor } = require('./src/authorization');
 const notificationService = require('./src/notificationService');
 
@@ -3378,6 +3379,37 @@ router.post('/api/admin/supplier-links', requireAuth(async (req, res) => {
       });
     }
     sendJson(res, 200, { ok: true, saved, skipped });
+  } catch (e) {
+    sendJson(res, 400, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// ADMIN: Inteligência de Compra ao fornecedor. A tela lê o plano de compra do simulador
+// de kit, cruza com os vínculos gravados (custo do Atacadão e PIX da Gall com hora) e,
+// para o produto que ainda não tem vínculo, resolve a quantidade pelo histórico de venda
+// confirmada de cada revendedora. Nada aqui mexe em preço de venda, estoque ou despesa.
+router.get('/api/admin/purchase-plan', requireAuth((req, res) => {
+  try {
+    sendJson(res, 200, purchasePlanService.buildPurchasePlan({}));
+  } catch (e) {
+    sendJson(res, 500, { error: e.message });
+  }
+}, { roles: ['ceo'] }));
+
+// ADMIN: releitura dos preços no site do fornecedor (cache de leitura, com hora).
+// Opcional: { product_ids: [...] } para atualizar só o que está sendo montado agora.
+router.post('/api/admin/purchase-plan/refresh', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const only = Array.isArray(body.product_ids) && body.product_ids.length
+      ? body.product_ids.map(Number) : null;
+    const out = await purchasePlanService.atualizarPrecos({ only, limite: Number(body.limite || 60) });
+    logAudit({
+      actorUserId: req.user.id, actorLabel: req.user.name, action: 'purchase_plan.prices_refreshed',
+      entityType: 'purchase_plan', entityId: 0,
+      details: { lidos: out.lidos, ok: out.ok, atualizados: out.atualizados, escopo: only ? only.length : 'tudo' },
+    });
+    sendJson(res, 200, out);
   } catch (e) {
     sendJson(res, 400, { error: e.message });
   }
