@@ -1034,7 +1034,25 @@ router.get('/api/portal/kits', requireReseller((req, res) => {
   const allKits = kitService.listKits({ resellerId: req.user.reseller_id });
   // Esconder kits rejeitados da revendedora
   const visibleKits = allKits.filter(k => k.status !== 'rejeitado');
-  sendJson(res, 200, { kits: visibleKits, settlement_reminder: req.user.reseller_id === 2 ? 'Kit #26 — Flavia (ciclo 2) está pendente de acerto.' : null });
+  // Lembrete derivado do banco (antes era uma string fixa por reseller_id === 2, que ficou
+  // contando pendência de um kit já encerrado). Só avisa se houver venda informada e não confirmada.
+  let reminder = null;
+  try {
+    const pend = db.prepare(`
+      SELECT k.id, k.cycle_number,
+             (SELECT COUNT(*) FROM kit_sales ks JOIN kit_items ki ON ki.id = ks.kit_item_id
+               WHERE ki.kit_id = k.id AND ks.status = 'informada') AS vendas_a_confirmar
+      FROM kits k
+      WHERE k.reseller_id = ? AND k.status IN ('entregue','aguardando_fechamento')
+        AND NOT EXISTS (SELECT 1 FROM kit_closures kc WHERE kc.kit_id = k.id)
+      ORDER BY k.id DESC`).all(req.user.reseller_id).filter((p) => p.vendas_a_confirmar > 0);
+    if (pend.length === 1) {
+      reminder = `Kit #${pend[0].id} (ciclo ${pend[0].cycle_number}) tem ${pend[0].vendas_a_confirmar} venda(s) esperando a conferência da CEO.`;
+    } else if (pend.length > 1) {
+      reminder = `Você tem ${pend.length} kits com venda lançada esperando conferência (${pend.map((p) => '#' + p.id).join(', ')}). Lance e acompanhe por kit — não tudo junto.`;
+    }
+  } catch (e) { reminder = null; }
+  sendJson(res, 200, { kits: visibleKits, settlement_reminder: reminder });
 }));
 
 router.get('/api/portal/kits/:id', requireReseller((req, res, params) => {

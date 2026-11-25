@@ -1212,7 +1212,14 @@ async function renderKits() {
         else if (k.status === 'em_preparacao') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button></div>';
         else if (k.status === 'entregue') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="kitAction('+k.id+',\'request-closure\')">Solicitar fechamento</button></div>';
         else if (k.status === 'aguardando_fechamento') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="finalizeAndClose('+k.id+')">✅ Conferir e Fechar</button><button class="reject" onclick="forceCloseKit('+k.id+')">⚡ Forçar</button></div>';
-        else if (k.status === 'encerrado') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" style="background:#10b981;border-color:#10b981" onclick="confirmPayment('+k.id+')">💰 Confirmar Pagamento</button></div>';
+        else if (k.status === 'encerrado') {
+          var pago = (k.commission_paid_cents || 0) > 0;
+          actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button>' +
+            (pago
+              ? '<span class="pill" style="background:#10b98122;color:#10b981;border:1px solid #10b981;padding:6px 10px;border-radius:999px;font-size:12px">💰 Pago '+fmt(k.commission_paid_cents)+' em '+esc(String(k.commission_paid_at||'').slice(0,10))+'</span>'
+              : '<button class="approve" style="background:#10b981;border-color:#10b981" onclick="confirmPayment('+k.id+')">💰 Confirmar Pagamento</button>') +
+            '</div>';
+        }
 
         kitsHtml += '<div class="kit-card"><span class="pill">' + (statusLabels[k.status]||k.status) + '</span>' +
           '<h3>Kit #' + k.id + ' — ' + esc(k.reseller_name||'') + ' (ciclo ' + k.cycle_number + ')</h3>' +
@@ -2747,61 +2754,44 @@ async function renderPortalKits() {
       return;
     }
     
-    // Coletar TODOS os itens de todos os kits prontos para venda
-    var allItems = [];
-    var hasDelivered = false;
-    var totalValue = 0;
-    
+    // UM CARTÃO POR KIT (ciclo), cada um com seus itens, seu total e SEUS botões.
+    // Antes os itens de todos os kits "prontos" eram jogados numa lista única, sem dizer de
+    // qual ciclo era o quê, e os botões atuavam em todos os kits de uma vez.
+    var html = '';
     for (var k of readyKits) {
-      try {
-        var detail = await api('/api/portal/kits/'+k.id, {token: S.token});
-        var kit = detail.kit;
-        if (kit.status === 'entregue' || kit.status === 'aguardando_fechamento') hasDelivered = true;
-        if (kit.items) {
-          kit.items.forEach(function(item) {
-            item._kitId = k.id;
-            item._kitStatus = kit.status;
-            allItems.push(item);
-            totalValue += (item.unit_sale_price_cents || 0) * (item.quantity_available || 0);
-          });
-        }
-      } catch(e) {}
-    }
-    
-    var totalUnits = allItems.reduce(function(sum, item) { return sum + (item.quantity_available || 0); }, 0);
-    var html = '<div class="kit-card"><span class="pill">'+esc(readyKits[0].status.replace(/_/g,' '))+'</span><h3>Meus Produtos</h3>' +
-      '<div style="font-size:12px;color:var(--t3);margin-bottom:12px">'+totalUnits+' produtos · Valor total: <b style="color:var(--ac)">R$ '+(totalValue/100).toFixed(2)+'</b></div>';
-    
-    // Lista de todos os produtos juntos
-    allItems.forEach(function(item) {
-      html += '<div class="il"><span>'+esc(item.product_name)+' <b style="color:var(--ac)">('+item.quantity_available+' un)</b></span>';
-      html += '<span><b>R$ '+(item.unit_sale_price_cents/100).toFixed(2)+'</b></span></div>';
-    });
-    
-    // Se tem kit entregue, mostrar formulário de venda unificado
-    if (hasDelivered) {
-      html += '<div class="st">Informar venda</div>';
-      allItems.forEach(function(item) {
-        if (item.quantity_available > 0 && (item._kitStatus === 'entregue' || item._kitStatus === 'aguardando_fechamento')) {
-          html += '<div class="row" style="margin-bottom:8px"><span style="flex:1;font-size:13px">'+esc(item.product_name)+'</span>' +
-            '<input type="number" min="1" max="'+item.quantity_available+'" placeholder="qtd" style="width:70px" id="sale-'+item.id+'" />' +
-            '<button class="btn-sm ok" onclick="informSale('+item.id+')">Vender</button></div>';
-        }
+      var kit = null;
+      try { kit = (await api('/api/portal/kits/'+k.id, {token: S.token})).kit; } catch(e) {}
+      if (!kit || !kit.items || !kit.items.length) continue;
+      var kitUnits = 0, kitValue = 0;
+      kit.items.forEach(function(i){ kitUnits += (i.quantity_available||0); kitValue += (i.unit_sale_price_cents||0)*(i.quantity_available||0); });
+      var emConf = kit.status === 'aguardando_fechamento';
+      html += '<div class="kit-card" style="margin-bottom:16px">' +
+        '<span class="pill">'+esc((kit.status||'').replace(/_/g,' '))+'</span>' +
+        '<h3>Ciclo '+(kit.cycle_number!=null?kit.cycle_number:'?')+' · Kit #'+kit.id+'</h3>' +
+        '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">'+kit.items.length+' produtos · '+kitUnits+' un em mãos · valor em mãos <b style="color:var(--ac)">R$ '+(kitValue/100).toFixed(2)+'</b></div>' +
+        (emConf ? '<div style="font-size:12px;color:#ffa500;margin-bottom:10px">⏳ em conferência com a CEO — você ainda pode lançar venda deste ciclo</div>' : '');
+      kit.items.forEach(function(item) {
+        html += '<div class="il"><span>'+esc(item.product_name)+' <b style="color:var(--ac)">('+item.quantity_available+' un)</b></span>' +
+          '<span><b>R$ '+(item.unit_sale_price_cents/100).toFixed(2)+'</b></span></div>';
       });
-      
-      // Botão solicitar fechamento
-      var openKitIds = readyKits.filter(function(k){return k.status==='entregue'||k.status==='aguardando_fechamento'}).map(function(k){return k.id});
-      html += '<div style="margin-top:16px;text-align:center">';
-      var awaitingIds = readyKits.filter(function(k){return k.status==='aguardando_fechamento';}).map(function(k){return k.id});
-      if (awaitingIds.length) {
-        html += '<button class="btn-s" style="margin-right:8px" onclick="reopenKits(['+awaitingIds.join(',')+'])">↩️ Reabrir kit para nova venda</button>';
+      var temOqueVender = kit.items.some(function(i){ return (i.quantity_available||0) > 0; });
+      if (temOqueVender) {
+        html += '<div class="st" style="font-size:13px;margin:14px 0 6px">Informar venda deste ciclo</div>';
+        kit.items.forEach(function(item) {
+          if ((item.quantity_available||0) > 0) {
+            html += '<div class="row" style="margin-bottom:8px"><span style="flex:1;font-size:13px">'+esc(item.product_name)+'</span>' +
+              '<input type="number" min="1" max="'+item.quantity_available+'" placeholder="qtd" style="width:70px" id="sale-'+item.id+'" />' +
+              '<button class="btn-sm ok" onclick="informSale('+item.id+')">Vender</button></div>';
+          }
+        });
       }
-      var deliveredIds = readyKits.filter(function(k){return k.status==='entregue';}).map(function(k){return k.id});
-      if (deliveredIds.length) html += '<button class="btn-s" onclick="requestClosureAll(['+deliveredIds.join(',')+'])">📋 Solicitar Fechamento</button>';
-      html += '</div>';
+      html += '<div style="margin-top:12px;text-align:center">';
+      html += emConf
+        ? '<button class="btn-s" onclick="reopenKits(['+kit.id+'])">↩️ Reabrir este kit para nova venda</button>'
+        : '<button class="btn-s" onclick="requestClosureAll(['+kit.id+'])">📋 Solicitar fechamento deste ciclo</button>';
+      html += '</div></div>';
     }
-    
-    html += '</div>';
+    if (!html) html = '<div class="panel"><div class="empty">Nenhum produto pronto para venda agora.</div></div>';
     v.innerHTML = reminderHtml + html;
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
 }
@@ -2921,11 +2911,16 @@ async function renderPortalSales() {
     '</div>' +
     (pendingNote ? '<div style="margin-bottom:16px">' + pendingNote + '</div>' : '') +
     '<div style="margin-bottom:20px">' +
-      '<div style="background:linear-gradient(135deg, #10b981, #059669);padding:20px;border-radius:var(--r2);color:white">' +
-        '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;margin-bottom:8px">💎 Total de Comissões Recebidas</div>' +
-        '<div style="font-size:32px;font-weight:700;margin-bottom:4px">' + f(totalReceived) + '</div>' +
-        '<div style="font-size:13px;opacity:0.9">' + totalPayments + ' pagamentos confirmados</div>' +
-      '</div>' +
+      (function(){
+        var ganho = s.commission_earned_cents || 0;
+        var aReceber = Math.max(0, ganho - totalReceived);
+        return '<div style="background:linear-gradient(135deg, #10b981, #059669);padding:20px;border-radius:var(--r2);color:white">' +
+          '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;margin-bottom:8px">💎 Comissão acumulada (já faturada)</div>' +
+          '<div style="font-size:32px;font-weight:700;margin-bottom:4px">' + f(ganho) + '</div>' +
+          '<div style="font-size:13px;opacity:0.95">💵 pago: ' + f(totalReceived) + ' · ' + totalPayments + ' pagamento(s) confirmado(s) pela SexS</div>' +
+          (aReceber > 0 ? '<div style="font-size:13px;margin-top:6px;background:rgba(255,255,255,.16);padding:6px 10px;border-radius:8px">⏳ a receber: <b>' + f(aReceber) + '</b></div>' : '<div style="font-size:13px;margin-top:6px">✅ tudo pago por enquanto</div>') +
+        '</div>';
+      })() +
     '</div>';
     
     // Resumo de kits encerrados

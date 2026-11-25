@@ -43,7 +43,28 @@ function listKits({ resellerId, status } = {}) {
   if (resellerId) { sql += ' AND k.reseller_id = ?'; params.push(resellerId); }
   if (status) { sql += ' AND k.status = ?'; params.push(status); }
   sql += ' ORDER BY k.id DESC';
-  return db.prepare(sql).all(...params);
+  const rows = db.prepare(sql).all(...params);
+  // Pagamento da comissão do kit: a tabela já existiu em dois formatos (created_at /
+  // paid_at), então descobrir a coluna antes de ordenar — sem isso a listagem inteira
+  // quebraria num banco recém-migrado.
+  try {
+    const cols = db.prepare('PRAGMA table_info(commission_payments)').all().map((c) => c.name);
+    if (cols.length) {
+      const dateCol = cols.includes('paid_at') ? 'paid_at' : (cols.includes('created_at') ? 'created_at' : null);
+      if (dateCol) {
+        const agg = {};
+        db.prepare(`SELECT kit_id, SUM(amount_cents) AS paid_cents, MAX(${dateCol}) AS paid_at
+                    FROM commission_payments GROUP BY kit_id`).all()
+          .forEach((a) => { agg[a.kit_id] = a; });
+        rows.forEach((r) => {
+          r.commission_paid_cents = agg[r.id] ? agg[r.id].paid_cents : 0;
+          r.commission_paid_at = agg[r.id] ? agg[r.id].paid_at : null;
+        });
+      }
+    }
+  } catch (e) { /* tabela ainda não criada: kits sem flag de pagamento */ }
+  if (!rows.length) return rows;
+  return rows;
 }
 
 function companyAvailableBalance(productId) {
