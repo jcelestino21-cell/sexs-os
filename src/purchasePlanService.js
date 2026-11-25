@@ -281,11 +281,165 @@ function montarLista(plano, links, historico) {
   return { linhas };
 }
 
+/** Pedidos pendentes das revendedoras somados POR PRODUTO (o simulator conta por
+ * menina; o carrinho do fornecedor é global). 'separado' NÃO entra: essas unidades
+ * já estão reservadas no armazém e o saldo livre delas ainda dá — contá-las aqui
+ * seria comprar duas vezes. */
+function pedidosPendentesPorProduto() {
+  const rows = db.prepare(`
+    SELECT ro.product_id, r.name AS revendedora,
+           SUM(MAX(0, ro.quantity_requested -
+                   CASE WHEN typeof(ro.quantity_fulfilled) = 'integer' THEN ro.quantity_fulfilled ELSE 0 END)) AS falta,
+           MIN(substr(ro.created_at,1,10)) AS desde
+    FROM reseller_orders ro
+    JOIN resellers r ON r.id = ro.reseller_id AND r.status = 'ativa'
+    JOIN products p ON p.id = ro.product_id AND p.active = 1
+    WHERE ro.status = 'pendente'
+    GROUP BY ro.product_id, ro.reseller_id
+    HAVING falta > 0`).all();
+  const out = new Map();
+  for (const r of rows) {
+    if (!out.has(r.product_id)) out.set(r.product_id, { total: 0, por: [] });
+    const o = out.get(r.product_id);
+    o.total += r.falta;
+    o.por.push({ revendedora: r.revendedora, qtd: r.falta, desde: r.desde });
+  }
+  for (const o of out.values()) o.por.sort((a, b) => b.qtd - a.qtd);
+  return out;
+}
+
+/** Unidades que estão na bolsa das meninas agora (kit em aberto, sem venda ainda) —
+ * não abatem a compra (só voltam a ser livres no fechamento), mas a tela mostra para
+ * ela entender por que o simulador de kit pede menos que esta lista. */
+function unidadesEmBolsa() {
+  const rows = db.prepare(`
+    SELECT ki.product_id, SUM(ki.quantity_available) AS em_bolsa
+    FROM kit_items ki JOIN kits k ON k.id = ki.kit_id
+    WHERE k.status IN ('entregue','aguardando_fechamento')
+    GROUP BY ki.product_id`).all();
+  const out = new Map();
+  for (const r of rows) out.set(r.product_id, r.em_bolsa || 0);
+  return out;
+}
+
+/** 🧺 A sugestão de carrinho que a CEO pediu (26/11): quantidade = pedido pendente
+ * + um mês de saída comprovada − o que está livre no armazém; custo = a leitura mais
+ * barata dos sites (com carimbo de quando foi lido), e quando não há leitura, o último
+ * custo cadastrado com a etiqueta honesta "site não lido". É a régua DELA, pedida em
+ * voz alta — o simulador de kit continua mandando na tela Montar Kit; as duas listam
+ * os números de origem para nada somar escondido. */
+function carrinhoSugerido(historico, links) {
+  const pedidos = pedidosPendentesPorProduto();
+  const bolsa = unidadesEmBolsa();
+  const livre = kitPlanService.warehouseBalances();
+  const nomes = new Map(db.prepare('SELECT id, name, category, internal_code, last_purchase_cost_cents FROM products WHERE active = 1')
+    .all().map((p) => [p.id, p]));
+
+  const candidatos = new Set([...pedidos.keys()]);
+  for (const [pid, h] of historico) if (h.por_mes >= 0.5) candidatos.add(pid);
+
+  const linhas = [];
+  for (const pid of candidatos) {
+    const p = nomes.get(pid);
+    if (!p) continue;
+    const ped = pedidos.get(pid) || { total: 0, por: [] };
+    const hist = historico.get(pid) || null;
+    const reposicao = hist ? Math.round(hist.por_mes * MESES_HISTORICO) : 0;
+    const estoqueLivre = livre.get ? (livre.get(pid) ?? 0) : (livre[pid] ?? 0);
+    const qtd = Math.max(0, ped.total + reposicao - estoqueLivre);
+    if (qtd <= 0) continue;
+
+    const por = links.get(pid) || {};
+    const opcoes = [linhaCusto(por.atacadao), linhaCusto(por.gall), linhaCusto(por.outro)]
+      .filter((o) => o && o.custo_cents != null)
+      .map((o) => ({ fornecedor: o.fornecedor === 'atacadao' ? 'Atacadão Sexy Shop' : o.fornecedor === 'gall' ? 'Gall' : 'outro',
+                     custo_cents: o.custo_cents, url: o.url, sku_id: o.sku_id, estoque: o.estoque,
+                     lido_em: o.lido_em, velho: !!o.velho }))
+      .sort((a, b) => a.custo_cents - b.custo_cents);
+
+    let custo_unit = null, origem = 'sem preço';
+    if (opcoes.length) { custo_unit = opcoes[0].custo_cents; origem = opcoes[0].fornecedor; }
+    else if (p.last_purchase_cost_cents) { custo_unit = p.last_purchase_cost_cents; origem = 'última compra cadastrada (site não lido)'; }
+
+    linhas.push({
+      product_id: pid, name: p.name, internal_code: p.internal_code || null,
+      quantity: qtd,
+      pedido_total: ped.total,
+      pedido_por: ped.por,
+      venda_mes: hist ? hist.por_mes : 0,
+      unidades_historico: hist ? hist.unidades : 0,
+      meses_historico: hist ? hist.meses : null,
+      estoque_livre: estoqueLivre,
+      em_bolsa: bolsa.get(pid) || 0,
+      custo_unit_cents: custo_unit,
+      custo_total_cents: custo_unit != null ? custo_unit * qtd : null,
+      custo_origem: origem,
+      opcoes,
+      melhor_url: opcoes.length ? opcoes[0].url : null,
+      melhor_sku: opcoes.length ? opcoes[0].sku_id : null,
+      melhor_velho: opcoes.length ? opcoes[0].velho : false,
+      por_que: `pedido ${ped.total} un${ped.por.length ? ' (' + ped.por.map((x) => x.revendedora + ' ' + x.qtd).join(', ') + ')' : ''}`
+             + ` + 1 mês de saída (${reposicao} un)`
+             + ` − livre no armazém (${estoqueLivre} un)`
+             + ((bolsa.get(pid) || 0) > 0 ? ` · ${bolsa.get(pid)} un ainda na bolsa (não abate)` : ''),
+    });
+  }
+  linhas.sort((a, b) => (b.custo_total_cents || 0) - (a.custo_total_cents || 0) || b.quantity - a.quantity);
+
+  // Monta o carrinho por fornecedor: quem tem leitura do site vai para o dele;
+  // o Atacadão aceita o link de carrinho com SKU+quantidade; a Gall não tem
+  // deep link de carrinho — ali a lista é item a item (conferido na prática).
+  const porFornecedor = {};
+  for (const l of linhas) {
+    const chave = l.opcoes.length ? l.opcoes[0].fornecedor : 'definir fornecedor';
+    const b = (porFornecedor[chave] ||= { fornecedor: chave, itens: [], unidades: 0, custo_cents: 0, custo_incompleto: 0 });
+    b.itens.push({ product_id: l.product_id, name: l.name, quantity: l.quantity,
+                  custo_unit_cents: l.opcoes.length ? l.opcoes[0].custo_cents : l.custo_unit_cents,
+                  url: l.opcoes.length ? l.opcoes[0].url : null,
+                  sku_id: l.opcoes.length ? l.opcoes[0].sku_id : null,
+                  estoque_site: l.opcoes.length ? l.opcoes[0].estoque : null,
+                  lido_em: l.opcoes.length ? l.opcoes[0].lido_em : null,
+                  velho: l.opcoes.length ? l.opcoes[0].velho : false });
+    b.unidades += l.quantity;
+    if (l.opcoes.length && l.custo_total_cents != null) b.custo_cents += l.custo_total_cents;
+    else b.custo_incompleto += l.quantity;
+  }
+  for (const b of Object.values(porFornecedor)) {
+    const comSku = b.itens.filter((i) => i.sku_id);
+    if (b.fornecedor === 'Atacadão Sexy Shop' && comSku.length === b.itens.length && comSku.length) {
+      b.link_carrinho = 'https://www.sexshopatacadao.com.br/cart?SKUList='
+        + comSku.map((i) => '/' + i.sku_id + '/' + i.quantity + '/').join('') + '&sc=1';
+    }
+    if (!b.custo_cents) b.custo_cents = null;
+  }
+
+  return {
+    gerado_em: new Date().toISOString(),
+    regra: { formula: 'pedido pendente + 1 mês de saída confirmada − estoque livre do armazém',
+             cobertura_meses: MESES_HISTORICO,
+             custo: 'leitura mais barata entre Atacadão e Gall (com hora); sem leitura, o último custo do cadastro — etiquetado como tal',
+             separado_naoConta: "pedidos 'separado' não entram: o armazém ainda tem essas unidades no saldo livre" },
+    linhas,
+    por_fornecedor: Object.values(porFornecedor).sort((a, b) => (b.custo_cents || 0) - (a.custo_cents || 0)),
+    totais: {
+      itens: linhas.length,
+      unidades: linhas.reduce((s, l) => s + l.quantity, 0),
+      custo_previsto_cents: linhas.reduce((s, l) => s + (l.custo_total_cents || 0), 0),
+      sem_leitura_de_site: linhas.filter((l) => !l.opcoes.length).length,
+      leituras_velhas: linhas.filter((l) => l.melhor_velho).length,
+    },
+  };
+}
+
 function buildPurchasePlan({ refresh = false } = {}) {
   const plano = kitPlanService.buildPlan({});
   const links = linksPorProduto();
   const historico = historicoVendas();
   const { linhas } = montarLista(plano, links, historico);
+
+  // A sugestão de carrinho da CEO (pedidos + histórico − estoque) sai no MESMO
+  // payload para a aba não precisar de uma segunda chamada.
+  const carrinho = carrinhoSugerido(historico, links);
 
   // Fora do plano de hoje, mas com saída comprovada e sem unidade no armazém: é o
   // "vai faltar" que o simulador não lista porque nenhuma revendedora pediu ainda.
@@ -348,6 +502,7 @@ function buildPurchasePlan({ refresh = false } = {}) {
 
   return {
     ok: true,
+    carrinho,
     gerado_em: new Date().toISOString(),
     regra: { cobertura_meses: MESES_HISTORICO, quantidade_vem_de: 'simulador de kit (pendente + reposição − bolsa)',
              sem_vinculo_usa: 'histórico de venda confirmada por revendedora', preco_fornecedor_max_minutos: PRAZO_FRESCO_MINUTOS },
@@ -368,4 +523,4 @@ function buildPurchasePlan({ refresh = false } = {}) {
   };
 }
 
-module.exports = { buildPurchasePlan, atualizarPrecos, lerAtacadao, lerGall, historicoVendas };
+module.exports = { buildPurchasePlan, atualizarPrecos, lerAtacadao, lerGall, historicoVendas, carrinhoSugerido };

@@ -530,6 +530,63 @@ function ppZap() {
   window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
 }
 
+function ppBlocoCarrinhoSugerido(d) {
+  var c = d.carrinho; if (!c || !(c.linhas || []).length) return '';
+  var brl = function (x) { return x == null ? '—' : 'R$ ' + (x / 100).toFixed(2); };
+  var hora = function (s) { return s ? String(s).slice(5, 16) : 'sem leitura'; };
+  var h = '<div style="border:1px solid var(--ac);border-radius:var(--r2);padding:12px 14px;margin-bottom:12px;background:linear-gradient(180deg,rgba(212,113,122,.05),transparent)">' +
+    '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:2px">' +
+      '<b style="font-size:14px">🧺 Sugestão de carrinho — pedidos + histórico − estoque</b>' +
+      '<span style="font-size:11px;color:var(--t3)">' + c.totais.itens + ' produto(s) · ' + c.totais.unidades + ' un · previsão <b style=\"color:var(--t1)\">' + brl(c.totais.custo_previsto_cents) + '</b>' +
+      (c.totais.sem_leitura_de_site ? ' · ' + c.totais.sem_leitura_de_site + ' sem preço de site' : '') +
+      (c.totais.leituras_velhas ? ' · <span style=\"color:#b45309\">' + c.totais.leituras_velhas + ' leitura(s) velha(s) — use 🔄</span>' : '') + '</span>' +
+      '<div style="flex:1"></div><button class="btn-s" onclick="ppCarrinhoZap()">📱 WhatsApp deste carrinho</button></div>' +
+    '<div style="font-size:11px;color:var(--t3);margin-bottom:8px">Regra: <b>' + esc(c.regra.formula) + '</b> · custo: ' + esc(c.regra.custo) + '</div>' +
+    '<div style="overflow-x:auto"><table style="width:100%;font-size:12px"><tr>' +
+    '<th style="text-align:left">produto</th><th>comprar</th><th>custo previsto/un</th><th>total</th>' +
+    '<th style="text-align:left">quem pediu</th><th style="text-align:left">v/mês · livre</th><th style="text-align:left">sites (un)</th><th>link</th></tr>';
+  c.linhas.forEach(function (l) {
+    var sites = (l.opcoes || []).map(function (o) {
+      return o.fornecedor.replace(' Sexy Shop', '') + ' ' + brl(o.custo_cents) + (o.velho ? ' ⚠' : '');
+    }).join(' · ');
+    h += '<tr><td style="text-align:left"><b>' + esc(l.name) + '</b></td>' +
+      '<td><b style="font-size:14px">' + l.quantity + '</b></td>' +
+      '<td>' + brl(l.custo_unit_cents) + '<div style="font-size:10px;color:' + (l.opcoes.length ? 'var(--t3)' : '#b45309') + '">' +
+        esc(l.custo_origem) + (l.opcoes.length ? ' · ' + hora(l.opcoes[0].lido_em) : '') + '</div></td>' +
+      '<td><b>' + brl(l.custo_total_cents) + '</b></td>' +
+      '<td style="text-align:left;font-size:11px">' + (l.pedido_por.length ? l.pedido_por.map(function (x) { return esc(x.revendedora.split(' ')[0]) + ' ' + x.qtd; }).join(', ') : '—') + '</td>' +
+      '<td style="text-align:left;font-size:11px;color:var(--t3)">' + l.venda_mes + ' · ' + l.estoque_livre + '</td>' +
+      '<td style="text-align:left;font-size:11px">' + esc(sites || 'sem vínculo no site') + '</td>' +
+      '<td>' + (l.melhor_url ? '<a href="' + esc(l.melhor_url) + '" target="_blank" rel="noopener" style="color:var(--ac)">abrir</a>' : '<a href="https://www.gall.com.br/busca?s=' + encodeURIComponent(l.name) + '" target="_blank" rel="noopener" style="color:var(--t3)">buscar</a>') + '</td></tr>' +
+      '<tr><td colspan="8" style="text-align:left;font-size:10px;color:var(--t3);padding:0 0 6px 2px">↳ ' + esc(l.por_que) + '</td></tr>';
+  });
+  h += '</table></div>';
+  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' + c.por_fornecedor.map(function (f) {
+    return '<span style="border:1px solid var(--bd);border-radius:999px;padding:4px 12px;font-size:11px">' + esc(f.fornecedor) +
+      ': <b>' + f.unidades + ' un</b>' + (f.custo_cents != null ? ' · ' + brl(f.custo_cents) : ' · custo a definir') +
+      (f.link_carrinho ? ' · <a href="' + f.link_carrinho + '" target="_blank" rel="noopener" style="color:var(--ac)">abrir carrinho ↗</a>' : '') +
+      '</span>';
+  }).join('') + '</div>' +
+    '<div style="font-size:10px;color:var(--t3);margin-top:6px">O pedido "separado" não entra nesta conta (o armazém já tem essas unidades). ' + esc(c.regra.separado_naoConta || '') +
+    ' · O simulador da tela Montar Kit continua com a régua dele — aqui é a visão de compra ao fornecedor.</div></div>';
+  return h;
+}
+
+function ppCarrinhoZap() {
+  var d = PP.dados; if (!d || !d.carrinho) return;
+  var c = d.carrinho, brl = function (x) { return x == null ? '—' : 'R$ ' + (x / 100).toFixed(2); };
+  var txt = '🧺 CARRINHO SUGERIDO — SexS\n';
+  c.por_fornecedor.forEach(function (f) {
+    txt += '\n*' + f.fornecedor + '* — ' + f.unidades + ' un' + (f.custo_cents != null ? ' · ' + brl(f.custo_cents) : '') + '\n';
+    f.itens.forEach(function (i) { txt += '• ' + i.quantity + '× ' + i.name + (i.custo_unit_cents ? ' (' + brl(i.custo_unit_cents) + '/un)' : '') + '\n'; });
+  });
+  txt += '\nPrevisão total: ' + brl(c.totais.custo_previsto_cents) + ' · ' + c.totais.itens + ' itens / ' + c.totais.unidades + ' un';
+  txt += '\n' + c.regra.formula + '\nPedidos: ' + c.linhas.map(function (l) {
+    return l.pedido_por.map(function (x) { return x.revendedora.split(' ')[0] + ' pede ' + x.qtd + ' de ' + l.name; }).join('\n');
+  }).filter(Boolean).join('\n');
+  window.open('https://wa.me/?text=' + encodeURIComponent(txt), '_blank');
+}
+
 function paintPurchasePlan() {
   var v = $('#v-purchase'); if (!v || !PP.dados) return;
   var d = PP.dados, t = d.totais || {};
@@ -563,6 +620,7 @@ function paintPurchasePlan() {
     card('Economia vs. tudo no mais caro', brl(t.economia_cents), '#16a34a') +
     card('Comparáveis (2 fornecedores)', (t.comparaveis || 0) + ' de ' + (t.produtos || 0)) +
     card('Sem vínculo (histórico)', (t.sem_vinculo || 0), '#b45309') + '</div>' +
+    ppBlocoCarrinhoSugerido(d) +
     '<div style="font-size:11px;color:var(--t3);margin-bottom:10px">Cobertura: <b>' + (d.regra.cobertura_meses || 1) +
     ' mês</b> de venda · quantidade: ' + esc(d.regra.quantidade_vem_de) + ' · sem vínculo: ' +
     esc(d.regra.sem_vinculo_usa) + ' · gerado ' + hora((d.gerado_em || '').replace('T', ' ')) + ' UTC</div>' +
