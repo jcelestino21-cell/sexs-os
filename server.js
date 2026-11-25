@@ -2530,9 +2530,24 @@ router.post('/api/admin/stock-in', requireAuth(async (req, res) => {
         .run(product.id, product.default_supplier_id || null, qty, costCents, req.user.id);
       db.prepare('INSERT INTO stock_movements (product_id, lot_id, type, quantity, balance_after, reason, created_by) VALUES (?,?,?,?,?,?,?)')
         .run(product.id, lotInfo.lastInsertRowid, 'entrada_compra', qty, bal + qty, reason, req.user.id);
-      if (created) db.prepare('UPDATE products SET last_purchase_cost_cents = ? WHERE id = ?').run(costCents, product.id);
+      // Custo da compra é sempre registrado no cadastro — "last_purchase_cost" é exatamente a
+      // última compra, e a tela de Estoque lê dele. Quando `reprice` vem marcado, os preços de
+      // venda são recalculados pela regra ativa (mesma política do fluxo do chat,
+      // stockIntents.executeCompraEstoque). Produto criado já nasce com os dois.
+      const explicitCost = Number(item.unit_cost_cents) > 0;
+      let repriced = false;
+      if (explicitCost) {
+        db.prepare('UPDATE products SET last_purchase_cost_cents = ? WHERE id = ?').run(costCents, product.id);
+        if (item.reprice && !created) {
+          const pricing = simulatePricing(costCents, rule);
+          db.prepare('UPDATE products SET min_price_cents = ?, ideal_price_cents = ?, promo_price_cents = ? WHERE id = ?')
+            .run(pricing.min_price_cents, pricing.current_price_cents, pricing.premium_price_cents, product.id);
+          repriced = true;
+        }
+      }
       results.push({ product_id: product.id, name: product.name, created, qty, unit_cost_cents: costCents,
-                     lot_id: lotInfo.lastInsertRowid, balance_before: bal, balance_after: bal + qty });
+                     lot_id: lotInfo.lastInsertRowid, balance_before: bal, balance_after: bal + qty,
+                     cost_updated: explicitCost, repriced });
     }
     const ok = results.filter(r => r.product_id);
     if (ok.length) logAudit({ actorUserId: req.user.id, actorLabel: req.user.name, action: 'stock.in', entityType: 'stock',

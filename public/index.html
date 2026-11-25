@@ -2285,6 +2285,140 @@ async function saveGoal() {
 }
 
 // ===== ESTOQUE =====
+var SI_IN = null; // modal de "registrar compra de estoque" (um por vez)
+
+function siNorm(s) { return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' '); }
+
+async function openStockInModal(productId) {
+  if (SI_IN) SI_IN.remove();
+  var f = function(c) { return c ? 'R$ ' + (c/100).toFixed(2) : '—'; };
+  var prodData;
+  try { prodData = await api('/api/products'); } catch(e) { return toast('Erro ao carregar produtos: ' + e.message); }
+  var prods = (prodData.products || []).filter(function(p) { return p.active !== 0; });
+  var byName = {}; prods.forEach(function(p) { byName[siNorm(p.name)] = p; });
+  var cats = []; prods.forEach(function(p) { if (p.category && cats.indexOf(p.category) < 0) cats.push(p.category); });
+  cats.sort();
+  if (cats.indexOf('Geral') < 0) cats.unshift('Geral');
+  var pre = null;
+  if (productId) { pre = prods.filter(function(p) { return p.id === Number(productId); })[0] || null; }
+
+  var inp = 'width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px 14px;font-size:14px;font-family:inherit;outline:none';
+  var lbl = 'display:block;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:6px;font-weight:500';
+
+  var overlay = document.createElement('div');
+  overlay.id = 'si-overlay';
+  overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:9999;display:flex;align-items:center;justify-content:center';
+  var modal = document.createElement('div');
+  modal.style.cssText = 'background:var(--p1);border:1px solid var(--bd);border-radius:var(--r3);padding:26px 28px;max-width:560px;width:92%;box-shadow:0 8px 40px rgba(0,0,0,.5);max-height:90vh;overflow:auto';
+  modal.innerHTML =
+    '<h2 style="font-family:Playfair Display,serif;font-size:19px;margin-bottom:4px;color:var(--ac)">🛒 Registrar compra de estoque</h2>' +
+    '<div style="font-size:12px;color:var(--t3);margin-bottom:18px">Escolha o produto, a quantidade que chegou e o que pagou. Se não existir, você cadastra na hora.</div>' +
+    '<datalist id="si-list">' + prods.map(function(p) {
+      return '<option value="' + esc(p.name) + '">' + f(p.last_purchase_cost_cents||0) + ' · saldo ' + (p.available_balance||0) + '</option>';
+    }).join('') + '</datalist>' +
+    '<div style="margin-bottom:12px"><label style="' + lbl + '">Produto</label>' +
+      '<input id="si-prod" list="si-list" autocomplete="off" value="' + (pre ? esc(pre.name) : '') + '" placeholder="comece a digitar o nome…" style="' + inp + '" /></div>' +
+    '<div id="si-info" style="margin-bottom:14px"></div>' +
+    '<div style="display:flex;gap:12px;margin-bottom:12px">' +
+      '<div style="flex:1"><label style="' + lbl + '">Quantidade recebida</label><input id="si-qty" type="number" min="1" step="1" value="1" style="' + inp + '" /></div>' +
+      '<div style="flex:1"><label style="' + lbl + '">Valor por unidade (R$)</label><input id="si-cost" type="number" min="0" step="0.01" placeholder="0,00" value="' + (pre && pre.last_purchase_cost_cents ? (pre.last_purchase_cost_cents/100).toFixed(2) : '') + '" style="' + inp + '" /></div>' +
+    '</div>' +
+    '<div id="si-total" style="font-size:13px;color:var(--t2);margin-bottom:6px"></div>' +
+    '<label id="si-reprice-wrap" style="display:none;align-items:flex-start;gap:8px;font-size:12px;color:var(--t2);margin:10px 0;cursor:pointer">' +
+      '<input id="si-reprice" type="checkbox" checked style="margin-top:2px" /> <span>♻️ Atualizar também os preços de venda pela regra (sugestão <b id="si-newideal"></b> · mínimo sem prejuízo <b id="si-newmin"></b>)</span></label>' +
+    '<div id="si-new" style="display:none;border:1px dashed var(--bd);border-radius:var(--r1);padding:12px;margin:10px 0">' +
+      '<div style="font-size:11px;color:#fbbf24;margin-bottom:10px">Este nome ainda <b>não está no catálogo</b> — vou cadastrá-lo com os preços derivados do custo informado.</div>' +
+      '<div style="display:flex;gap:12px">' +
+        '<div style="flex:1"><label style="' + lbl + '">Categoria</label><select id="si-cat" style="' + inp + '">' + cats.map(function(c){ return '<option>' + esc(c) + '</option>'; }).join('') + '</select></div>' +
+        '<div style="flex:1"><label style="' + lbl + '">Código interno (opcional)</label><input id="si-code" style="' + inp + '" placeholder="ex.: A12" /></div>' +
+      '</div></div>' +
+    '<div style="margin-bottom:16px"><label style="' + lbl + '">Observação (opcional)</label><input id="si-note" style="' + inp + '" placeholder="ex.: pedido 487 do Atacadão" /></div>' +
+    '<div style="display:flex;gap:10px;justify-content:flex-end">' +
+      '<button id="si-cancel" style="background:var(--p2);color:var(--t1);border:1px solid var(--bds);border-radius:var(--r1);padding:10px 22px;font-size:13px;cursor:pointer;font-family:inherit">Cancelar</button>' +
+      '<button id="si-ok" class="btn-sm ok" style="padding:10px 22px;font-size:13px">✅ Lançar entrada</button>' +
+    '</div>';
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  SI_IN = overlay;
+
+  var elProd = modal.querySelector('#si-prod'), elQty = modal.querySelector('#si-qty'), elCost = modal.querySelector('#si-cost');
+  var elInfo = modal.querySelector('#si-info'), elTotal = modal.querySelector('#si-total'), elNew = modal.querySelector('#si-new');
+  var elReW = modal.querySelector('#si-reprice-wrap'), elRe = modal.querySelector('#si-reprice');
+
+  function paint() {
+    var p = byName[siNorm(elProd.value)] || null;
+    var qty = Math.max(0, parseInt(elQty.value) || 0);
+    var cents = Math.round((parseFloat(String(elCost.value||'').replace(',','.')) || 0) * 100);
+    if (p) {
+      var last = p.last_purchase_cost_cents || 0;
+      var delta = cents && last ? cents - last : 0;
+      elInfo.innerHTML = '<div style="background:var(--p2);border:1px solid var(--bd);border-radius:var(--r1);padding:10px 12px;font-size:12px;color:var(--t2)">' +
+        'Estoque atual: <b>' + (p.available_balance||0) + ' disp.</b>' + ((p.reserved||0) > 0 ? ' · <span style="color:#ffa500">' + p.reserved + ' reservado</span>' : '') +
+        ' · Última compra: <b>' + f(last) + '/un</b>' +
+        (cents && last && cents !== last ? ' → <b style="color:' + (delta>0?'#f87171':'#4ade80') + '">' + (delta>0?'+':'') + f(Math.abs(delta)) + '/un (' + (delta>0?'+':'') + Math.round(delta*100/last) + '%)</b>' : '') +
+        '<div style="color:var(--t3);margin-top:4px">Depois desta entrada: saldo <b>' + ((p.available_balance||0) + qty) + '</b>' + (qty ? ' · soma entra pelo lote novo (média ponderada no fechamento)' : '') + '</div></div>';
+      elNew.style.display = 'none';
+      var showRe = !!(cents && last && cents !== last);
+      elReW.style.display = showRe ? 'flex' : 'none';
+      if (showRe) {
+        modal.querySelector('#si-newideal').textContent = f(Math.round(cents * 3));
+        modal.querySelector('#si-newmin').textContent = f(Math.round(cents / 0.7));
+      }
+    } else if (String(elProd.value).trim()) {
+      elInfo.innerHTML = '<div style="font-size:12px;color:#fbbf24">⚠ Nenhum produto com esse nome exato no catálogo.</div>';
+      elNew.style.display = 'block';
+      elReW.style.display = 'none';
+    } else {
+      elInfo.innerHTML = '<div style="font-size:12px;color:var(--t3)">Digite o nome do produto — a lista mostra o custo e o saldo de cada um.</div>';
+      elNew.style.display = 'none';
+      elReW.style.display = 'none';
+    }
+    elTotal.innerHTML = (qty && cents) ? 'Total desta compra: <b style="color:var(--t1)">' + f(qty*cents) + '</b> (' + qty + ' × ' + f(cents) + ')' : '';
+  }
+  [elProd, elQty, elCost].forEach(function(el){ el.addEventListener('input', paint); });
+  paint();
+  elProd.focus();
+
+  function close() { overlay.remove(); SI_IN = null; document.removeEventListener('keydown', onKey); }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  modal.querySelector('#si-cancel').onclick = close;
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', onKey);
+
+  modal.querySelector('#si-ok').onclick = async function() {
+    var btn = modal.querySelector('#si-ok');
+    var name = String(elProd.value||'').trim().replace(/\s+/g,' ');
+    var p = byName[siNorm(name)] || null;
+    var qty = parseInt(elQty.value);
+    var cents = Math.round((parseFloat(String(elCost.value||'').replace(',','.')) || 0) * 100);
+    if (!name) return toast('Informe o produto comprado');
+    if (!qty || qty <= 0) return toast('Quantidade deve ser 1 ou mais');
+    if (!cents || cents <= 0) return toast('Informe o valor pago por unidade');
+    if (!p && btn.dataset.confirm !== '1') {
+      // cadastro novo exige um segundo clique — evita criar produto com nome digitado errado
+      btn.dataset.confirm = '1';
+      btn.textContent = '✅ Cadastrar “' + name + '” e lançar';
+      toast('Produto novo — clique de novo para confirmar o cadastro');
+      return;
+    }
+    var item = p ? { product_id: p.id, qty: qty, unit_cost_cents: cents, reprice: elRe.checked }
+                 : { name: name, qty: qty, unit_cost_cents: cents, create_if_missing: true,
+                     category: modal.querySelector('#si-cat').value,
+                     internal_code: String(modal.querySelector('#si-code').value||'').trim() };
+    btn.disabled = true;
+    try {
+      var r = await api('/api/admin/stock-in', { method: 'POST', body: JSON.stringify({
+        items: [item], reason: String(modal.querySelector('#si-note').value||'').trim() || 'Compra registrada na aba Estoque' }) });
+      var first = (r.results||[])[0];
+      if (!first || !first.product_id) throw new Error((first && first.error) || 'não foi possível lançar a entrada');
+      close();
+      toast('+' + first.qty + ' un de ' + first.name + ' · saldo ' + first.balance_after +
+            (first.created ? ' · 🆕 cadastrado' : '') + (first.repriced ? ' · ♻️ preços atualizados' : ''), 'ok');
+      renderStock();
+    } catch(e) { btn.disabled = false; toast('Erro: ' + e.message); }
+  };
+}
+
 async function renderStock() {
   var v = $('#v-stock'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
@@ -2391,7 +2525,8 @@ async function renderStock() {
         var lowStock = avail <= (p.low_stock_threshold || 2);
         
         tableHtml += '<tr' + (lowStock && reserved === 0 ? ' style="background:rgba(212,113,122,.08)"' : '') + '>' +
-          '<td style="font-weight:500;font-size:13px">' + esc(p.name) + (lowStock && reserved === 0 ? ' <span style="color:var(--dg);font-size:10px">⚠ baixo</span>' : '') + '</td>' +
+          '<td style="font-weight:500;font-size:13px">' + esc(p.name) + (lowStock && reserved === 0 ? ' <span style="color:var(--dg);font-size:10px">⚠ baixo</span>' : '') +
+          ' <a href="javascript:void 0" onclick="openStockInModal(' + p.id + ')" title="Registrar compra deste produto" style="color:var(--t3);font-size:12px;text-decoration:none">🛒</a></td>' +
           '<td style="text-align:center;font-weight:700;font-size:14px">' + avail + '</td>' +
           '<td style="text-align:center;color:' + (reserved > 0 ? '#ffa500' : 'var(--t3)') + ';font-weight:' + (reserved > 0 ? '600' : '400') + '">' + (reserved > 0 ? reserved : '—') + '</td>' +
           '<td style="text-align:center"><input type="number" class="stock-edit-input" data-original="' + avail + '" data-product-id="' + p.id + '" onchange="updateStockChange(' + p.id + ', this.value)" style="display:none;width:80px" /></td>' +
@@ -2404,7 +2539,8 @@ async function renderStock() {
     });
     
     v.innerHTML = '<div class="panel" style="margin-bottom:20px">' +
-      '<div class="st" style="margin-top:0">📦 Controle de Estoque</div>' +
+      '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div class="st" style="margin-top:0">📦 Controle de Estoque</div>' +
+      '<button class="btn-sm ok" style="margin-left:auto" onclick="openStockInModal()">🛒 Registrar compra de estoque</button></div>' +
       summaryHtml + resellersHtml + legendHtml +
       '<div style="overflow-x:auto"><table style="width:100%;font-size:13px">' +
       '<tr>' +
