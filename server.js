@@ -1208,6 +1208,19 @@ router.get('/api/portal/sales', requireReseller((req, res) => {
   const commissionPct = db.prepare('SELECT commission_pct FROM resellers WHERE id = ?').get(resellerId)?.commission_pct || 0.30;
   const commissionEarned = Math.round(totalConfirmed * commissionPct);
 
+  // Duas telas arredondando de jeitos diferentes geram divergência de centavo, e foi
+  // exatamente o que aconteceu hoje: a Gizelle via "a receber R$36,63" (25% arredondado
+  // uma vez sobre a soma das vendas dela) enquanto o fechamento oficial do kit 27 diz
+  // R$36,64 (arredondado por kit). O número da menina passa a nascer da MESMA régua da
+  // CEO — o documento de fechamento — com o cálculo antigo mantido como salvaguarda.
+  let commissionBilled = null, commissionPaid = null, commissionOpen = null;
+  try {
+    const kitsDel = kitService.listKits({ resellerId });
+    commissionBilled = kitsDel.reduce((s, k) => s + (k.closure_commission_cents || 0), 0);
+    commissionPaid = kitsDel.reduce((s, k) => s + (k.commission_paid_cents || 0), 0);
+    commissionOpen = kitsDel.reduce((s, k) => s + (k.commission_due_cents || 0), 0);
+  } catch (e) { /* card continua com a base antiga se listKits falhar */ }
+
   sendJson(res, 200, {
     sales,
     summary: {
@@ -1215,6 +1228,9 @@ router.get('/api/portal/sales', requireReseller((req, res) => {
       total_confirmed_cents: totalConfirmed,
       commission_pct: commissionPct,
       commission_earned_cents: commissionEarned,
+      commission_billed_cents: commissionBilled,
+      commission_paid_cents: commissionPaid,
+      commission_open_cents: commissionOpen,
       items_sold: sales.filter(s => s.status === 'confirmada' || s.status === 'informada').reduce((sum, s) => sum + s.quantity, 0),
     }
   });

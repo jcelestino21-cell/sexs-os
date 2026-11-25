@@ -3172,8 +3172,11 @@ async function renderPortalSales() {
     (pendingNote ? '<div style="margin-bottom:16px">' + pendingNote + '</div>' : '') +
     '<div style="margin-bottom:20px">' +
       (function(){
-        var ganho = s.commission_earned_cents || 0;
-        var aReceber = Math.max(0, ganho - totalReceived);
+        // Base oficial = fechamentos (commission_billed/open). O cálculo antigo por venda
+        // fica como teto de segurança: se um dia existir venda confirmada fora de
+        // fechamento, nada some do card dela — no normal, os dois batem centavo a centavo.
+        var ganho = Math.max(s.commission_billed_cents != null ? s.commission_billed_cents : 0, s.commission_earned_cents || 0);
+        var aReceber = Math.max(0, s.commission_open_cents != null ? s.commission_open_cents : 0, ganho - totalReceived);
         return '<div style="background:linear-gradient(135deg, #10b981, #059669);padding:20px;border-radius:var(--r2);color:white">' +
           '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;opacity:0.9;margin-bottom:8px">💎 Comissão acumulada (já faturada)</div>' +
           '<div style="font-size:32px;font-weight:700;margin-bottom:4px">' + f(ganho) + '</div>' +
