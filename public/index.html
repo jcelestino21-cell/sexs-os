@@ -2467,26 +2467,13 @@ function covBuildMap() {
     ? [pos.reduce(function (s, r) { return s + r.lat; }, 0) / pos.length, pos.reduce(function (s, r) { return s + r.lng; }, 0) / pos.length]
     : [-21.1278, -47.9912]; // Sertãozinho-SP: a cidade da SexS, centro de partida
   COV.mapa = L.map('cov-map', { scrollWheelZoom: true }).setView(center, pos.length ? 13 : 11);
-  // Tiles: o servidor voluntario do OSM bloqueia requests de dominios compartilhados
-  // (*.onrender.com sem referer = o 403 que a CEO viu na tela). Entao: CARTO como fonte
-  // primaria (CDN comercial, tolerante, cortesia mesma base OSM) e Esri como reserva —
-  // se 6 tiles falarem, a camada troca sozinha, sem a preta ficar tela cinza.
-  var COV_TILES = [
-    { u: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', s: 'abcd', a: '© OpenStreetMap · © CARTO' },
-    { u: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', s: 'abc', a: '© Esri, Maxar' }
-  ];
-  (function covTiles() {
-    var i = 0, errs = 0, layer = null;
-    function add() {
-      if (layer) { COV.mapa.removeLayer(layer); }
-      var src = COV_TILES[i];
-      layer = L.tileLayer(src.u, { maxZoom: 19, subdomains: src.s, attribution: src.a }).addTo(COV.mapa);
-      layer.on('tileerror', function () {
-        if (++errs >= 6 && i < COV_TILES.length - 1) { i++; errs = 0; add(); }
-      });
-    }
-    add();
-  })();
+  // Tiles vêm do NOSSO servidor (/maptile) — o navegador não fala com CDN nenhum:
+  // nem o OSM (que bloqueia domínio compartilhado: o 403), nem os que pedem API
+  // key (o erro seguinte). O servidor tenta os fornecedores em fila, com UA
+  // honesto, e cacheia. Caiu tudo? Pinos, círculos e a tabela seguem funcionando.
+  L.tileLayer('/maptile/{z}/{x}/{y}.png', {
+    maxZoom: 17, attribution: '© OpenStreetMap · © CARTO'
+  }).addTo(COV.mapa);
   COV.camada = L.layerGroup().addTo(COV.mapa);
   COV.mapa.on('click', function (e) {
     if (!COV.marcando) return;

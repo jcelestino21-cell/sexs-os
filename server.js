@@ -1992,6 +1992,81 @@ function applySecurityHeaders(res, req) {
   }
 }
 
+// ── Tiles do mapa (🗺️ Abrangência) — proxy com cache ─────────────────────────
+// Por que proxy e não direto no navegador: domínio compartilhado (*.onrender.com)
+// sem referer é barrado pelo OSM ("403 tile usage policy" que a CEO viu), e os
+// CDNs que não barram passaram a exigir API key ("api key requerido"). Servindo
+// daqui: o navegador só vê 'self' (CSP satisfeita, nenhum CDN de terceiro), o
+// servidor pede com UA identificado (é o que a política OSM/fr pede) e o cache
+// LRU em RAM garante 1 busca de rede por tile, não por clique de zoom.
+const TILE_PROVIDERS = [
+  (z, x, y) => `https://a.tile.openstreetmap.fr/osmfr/${z}/${x}/${y}.png`,
+  (z, x, y) => `https://a.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}.png`,
+  (z, x, y) => `https://a.tile.openstreetmap.org/${z}/${x}/${y}.png`,
+  (z, x, y) => `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`
+];
+const TILE_HEADERS = {
+  'User-Agent': 'SexS-OS/1.0 (mapa de cobertura interno da SexS; volume humano baixo)',
+  'Accept': 'image/png,image/*;q=0.8,*/*;q=0.5'
+};
+const tileCache = new Map(); // "z/x/y" -> { b: Buffer, ct: string }
+let tileCacheBytes = 0;
+const TILE_CACHE_MAX_BYTES = 24 * 1024 * 1024;
+
+function tileCachePut(key, b, ct) {
+  tileCache.set(key, { b, ct });
+  tileCacheBytes += b.length;
+  while (tileCacheBytes > TILE_CACHE_MAX_BYTES && tileCache.size) {
+    const oldest = tileCache.keys().next().value;
+    tileCacheBytes -= tileCache.get(oldest).b.length;
+    tileCache.delete(oldest);
+  }
+}
+
+// Rate limit próprio (generoso — pan no mapa dispara dezenas de tiles), mesmo
+// Map/limpeza do check geral; chave "rlt:" não colide com "rl:".
+function tileRateOk(req) {
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const key = 'rlt:' + ip;
+  const now = Date.now();
+  const e = rateLimitMap.get(key);
+  if (!e || now - e.windowStart > RATE_LIMIT_WINDOW_MS) { rateLimitMap.set(key, { count: 1, windowStart: now }); return true; }
+  e.count += 1;
+  return e.count <= 1200;
+}
+
+async function handleMapTile(req, res, z, x, y) {
+  const fail = (code, msg) => {
+    if (!res.headersSent) { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); }
+    if (!res.writableEnded) { res.end(msg); }
+  };
+  if (!(z >= 0 && z <= 17)) return fail(400, 'zoom fora de alcance (0-17)');
+  const lim = 1 << z;
+  if (!(x >= 0 && x < lim && y >= 0 && y < lim)) return fail(400, 'tile fora do mundo');
+  if (!tileRateOk(req)) return fail(429, 'muitos tiles ao mesmo tempo — arraste de novo em um instante');
+  const key = z + '/' + x + '/' + y;
+  const hit = tileCache.get(key);
+  if (hit) {
+    res.writeHead(200, { 'Content-Type': hit.ct, 'Cache-Control': 'public, max-age=604800, immutable', 'X-Map-Tile': 'cache' });
+    return res.end(hit.b);
+  }
+  for (const mk of TILE_PROVIDERS) {
+    try {
+      const r = await fetch(mk(z, x, y), { headers: TILE_HEADERS, signal: AbortSignal.timeout(8000) });
+      const ct = r.headers.get('content-type') || 'image/png';
+      if (r.ok && ct.startsWith('image/')) {
+        const b = Buffer.from(await r.arrayBuffer());
+        if (b.length > 100 && b.length < 512 * 1024) {
+          tileCachePut(key, b, ct);
+          res.writeHead(200, { 'Content-Type': ct, 'Cache-Control': 'public, max-age=604800, immutable', 'X-Map-Tile': 'proxy' });
+          return res.end(b);
+        }
+      }
+    } catch (e) { /* fornecedor mudo/lento → próximo da fila */ }
+  }
+  return fail(502, 'nenhum fundo de mapa respondeu agora — pinos, círculos e bairros seguem funcionando sem ele');
+}
+
 const server = http.createServer(async (req, res) => {
   applySecurityHeaders(res, req);
 
@@ -2007,6 +2082,11 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(204);
     return res.end();
   }
+
+  // ── /maptile/{z}/{x}/{y}.png — antes do rate limit geral (120/min) de
+  // propósito: um pan no mapa emite dezenas de tiles; tem limite próprio (1200).
+  const tileM = /^\/maptile\/(\d{1,2})\/(\d{1,6})\/(\d{1,6})\.png$/.exec(req.url.split('?')[0]);
+  if (tileM) { await handleMapTile(req, res, +tileM[1], +tileM[2], +tileM[3]); return; }
 
   // FASE 10.5 — Rate limiting geral
   const rlBlocked = checkGeneralRateLimit(req);
