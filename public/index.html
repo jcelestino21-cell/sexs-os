@@ -2387,11 +2387,13 @@ function covLoadLeaflet(cb) {
   if (window.L) return cb(true);
   if (COV.leafletTentado) return cb(!!window.L);
   COV.leafletTentado = true;
+  // Leaflet 1.9.4 servido LOCAL (vendor/) — a CSP da própria página só permite script de 'self'/jsdelivr,
+  // e o unpkg dava block (o "403" que a CEO viu). Assim funciona offline-de-CDN e sem dependência externa.
   var link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  link.href = '/vendor/leaflet/leaflet.css';
   var sc = document.createElement('script');
-  sc.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  sc.src = '/vendor/leaflet/leaflet.js';
   sc.onload = function () { cb(true); };
   sc.onerror = function () { cb(false); };
   document.head.appendChild(link);
