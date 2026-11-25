@@ -342,6 +342,7 @@ async function renderApp() {
     
     if (S.user.role === 'ceo') tabs.push({k:'audit',l:'Auditoria'});
     if (S.user.role === 'ceo') tabs.push({k:'purchase',l:'🧠 Inteligência de Compra'});
+    if (S.user.role === 'ceo') tabs.push({k:'coverage',l:'🗺️ Abrangência'});
 
     var root = $('#app');
     root.innerHTML = '<div class="hdr"><div class="hdr-brand"><img src="/logo-sm.png" alt="SexS" class="hdr-logo" /><div><div class="hdr-title">Central da CEO</div><div class="hdr-sub">Bem-vinda' + (S.user.role==='ceo'?'':', '+esc(S.user.name)) + '</div></div></div><div class="hdr-actions"><button class="logout" onclick="logout()">sair</button></div></div>' +
@@ -402,7 +403,8 @@ function switchTab(tab) {
     resellerMsgs:renderResellerMessages,
     audit:renderAudit,
     'mentor-portals':renderMentorPortals,
-    'purchase':renderPurchasePlan
+    'purchase':renderPurchasePlan,
+    'coverage':renderCoverage
   };
   if (r[tab]) r[tab]();
 }
@@ -1167,6 +1169,12 @@ async function renderResellers() {
         '<div><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Comissão (%)</label>' +
         '<input id="newResCommission" type="number" placeholder="30" value="25" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
         '<button onclick="createReseller()" style="background:var(--ag);color:var(--bg);border:none;border-radius:var(--r1);padding:10px 20px;font-weight:600;font-size:13px;cursor:pointer;white-space:nowrap">Cadastrar</button>' +
+        '<div style="grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap">' +
+          '<div style="flex:2;min-width:220px"><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">🏠 Endereço (rua, nº, bairro)</label>' +
+          '<input id="newResAddress" type="text" placeholder="Ex.: Rua das Acácias, 120 – Jd. Retiro" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
+          '<div style="flex:1;min-width:130px"><label style="font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">CEP (opcional — já crava no mapa)</label>' +
+          '<input id="newResCep" type="text" placeholder="14170-000" style="width:100%;background:var(--p2);border:1px solid var(--bds);color:var(--t1);border-radius:var(--r1);padding:10px;font-size:13px" /></div>' +
+        '</div>' +
       '</div>' +
     '</div>';
     
@@ -1210,19 +1218,31 @@ async function createReseller() {
   var name = $('#newResName').value.trim();
   var phone = $('#newResPhone').value.trim();
   var commission = parseFloat($('#newResCommission').value) || 25;
+  var addrEl = $('#newResAddress'), cepEl = $('#newResCep');
+  var addr = addrEl ? addrEl.value.trim() : '';
+  var cep = cepEl ? cepEl.value.trim() : '';
   
   if (!name) { toast('Informe o nome da revendedora'); return; }
   
   try {
-    await api('/api/resellers', {
+    var criado = await api('/api/resellers', {
       method: 'POST',
       body: JSON.stringify({
         name: name,
         phone: phone,
-        commission_pct: commission / 100
+        commission_pct: commission / 100,
+        address: ([addr, cep].filter(Boolean).join(' – CEP ') || null)
       })
     });
     toast('Revendedora cadastrada com sucesso!', 'ok');
+    if ((addr || cep) && criado && criado.id) {
+      try {
+        var g = await api('/api/admin/coverage/locate', { method: 'POST', body: JSON.stringify({ reseller_id: criado.id, cep: cep, address: addr }) });
+        toast('Já cravada no mapa 🗺️' + (g.bairro ? ' · bairro ' + g.bairro : ''), 'ok');
+      } catch (e) {
+        toast('Endereço salvo, mas o mapa não achou — posicione na aba 🗺️ Abrangência');
+      }
+    }
     renderResellers();
   } catch(e) {
     toast('Erro: ' + e.message);
@@ -2343,6 +2363,287 @@ async function saveGoal() {
 }
 
 // ===== ESTOQUE =====
+// ===================== 🗺️ ABRANGÊNCIA — mapa de revendedoras (CEO) =====================
+// A leitura que a CEO pediu: onde eu tenho base, onde estou forte (círculos se
+// tocando), onde estou isolada. Raio do círculo é SLIDER — a régua é dela, não nossa.
+// Cor do pino = giro dos últimos 30 dias (confirmada + informada). Inativas aparecem
+// em cinza pontilhado e nunca contam para força/bairro.
+// O mapa usa Leaflet + tiles do OpenStreetMap (CDN público, sem chave). Sem internet
+// (ou CDN bloqueada), o painel de bairros continua funcionando e o quadro avisa.
+
+var COV = { dados: null, mapa: null, camada: null, raio: 1.5, showInativas: true, marcando: null, ocupado: false, lida: false };
+
+function covBrl(c) { return 'R$ ' + ((c || 0) / 100).toFixed(2); }
+
+function covDistKm(a, b) {
+  var R = 6371, rad = Math.PI / 180;
+  var dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  var s = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
+}
+
+function covLoadLeaflet(cb) {
+  if (window.L) return cb(true);
+  if (COV.leafletTentado) return cb(!!window.L);
+  COV.leafletTentado = true;
+  var link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  var sc = document.createElement('script');
+  sc.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  sc.onload = function () { cb(true); };
+  sc.onerror = function () { cb(false); };
+  document.head.appendChild(link);
+  document.head.appendChild(sc);
+}
+
+function covEstilo(r) {
+  if (r.status !== 'ativa') return { cor: '#9ca3af', texto: 'inativa', trace: '5,5' };
+  if (r.cents_30d >= 10000) return { cor: '#16a34a', texto: 'girando forte (≥R$100/30d)', trace: null };
+  if (r.cents_30d > 0) return { cor: '#f59e0b', texto: 'vendendo pouco', trace: null };
+  return { cor: '#64748b', texto: 'sem venda lançada há 30 dias', trace: null };
+}
+
+async function renderCoverage() {
+  var v = $('#v-coverage'); if (!v) return;
+  try { COV.dados = await api('/api/admin/coverage'); }
+  catch (e) { v.innerHTML = '<div class="panel"><div class="empty">Erro ao ler abrangência: ' + esc(e.message) + '</div></div>'; return; }
+  var d = COV.dados, tt = d.totais;
+  v.innerHTML =
+    '<div class="panel">' +
+    '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">' +
+      '<div class="st" style="margin-top:0">🗺️ Abrangência</div>' +
+      '<span style="font-size:12px;color:var(--t3)">' + tt.ativas + ' ativas · ' + tt.posicionadas + ' posicionadas · ' +
+        '<b>' + covBrl(tt.cents_30d) + '</b> girado por elas em 30 dias' +
+        (tt.ativas_sem_posicao ? ' · <span style="color:#f59e0b">' + tt.ativas_sem_posicao + ' sem posição</span>' : '') + '</span>' +
+      '<div style="flex:1"></div>' +
+      '<label style="font-size:12px;color:var(--t2);display:flex;gap:6px;align-items:center">raio ' +
+        '<input id="cov-raio" type="range" min="0.5" max="3" step="0.25" value="' + COV.raio + '" style="width:110px"> <b id="cov-raio-v">' + COV.raio + ' km</b></label>' +
+      '<label style="font-size:12px;color:var(--t2);display:flex;gap:5px;align-items:center;cursor:pointer">' +
+        '<input id="cov-inat" type="checkbox"' + (COV.showInativas ? ' checked' : '') + '> inativas (cinza)</label>' +
+      '<button class="btn-s" onclick="covRecarregar()">↻ Atualizar</button>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;align-items:stretch">' +
+      '<div id="cov-map" style="height:540px;border:1px solid var(--bd);border-radius:var(--r2);background:var(--p2)"></div>' +
+      '<div id="cov-side" style="max-height:540px;overflow:auto"></div>' +
+    '</div>' +
+    '<div id="cov-sem"></div>' +
+    '<div style="font-size:11px;color:var(--t3);margin-top:8px">O endereço é a <b>base</b> da revendedora — o mapa mostra onde você tem ponto de apoio, não GPS das vendas. ' +
+    'Círculos se sobrepondo = zona coberta por mais de uma. Pino sem ninguém perto = frente isolada. Geocodificação: ViaCEP + OpenStreetMap; se o pino errar a rua, ' +
+    'use "🖐 posicionar" e clique no lugar certo.</div>' +
+    '</div>';
+  document.getElementById('cov-raio').addEventListener('input', function (e) {
+    COV.raio = parseFloat(e.target.value);
+    document.getElementById('cov-raio-v').textContent = COV.raio + ' km';
+    covDraw(); covPaintSide();
+  });
+  document.getElementById('cov-inat').addEventListener('change', function (e) {
+    COV.showInativas = e.target.checked; covDraw(); covPaintSide();
+  });
+  covPaintSide(); covPaintSem();
+  covLoadLeaflet(function (ok) {
+    if (!ok) {
+      var m0 = document.getElementById('cov-map');
+      if (m0) m0.innerHTML = '<div style="padding:30px;text-align:center;color:var(--t3)">⚠️ O mapa não carregou (precisa de internet para os tiles do OpenStreetMap).<br>A tabela de bairros ao lado continua valendo.</div>';
+      return;
+    }
+    covBuildMap();
+  });
+}
+
+async function covRecarregar() {
+  try { COV.dados = await api('/api/admin/coverage'); } catch (e) { return toast('Erro: ' + e.message); }
+  renderCoverage();
+}
+
+function covBuildMap() {
+  var el = document.getElementById('cov-map'); if (!el || !window.L) return;
+  if (COV.mapa) { COV.mapa.remove(); COV.mapa = null; }
+  var pos = COV.dados.resellers.filter(function (r) { return r.lat != null && r.lng != null; });
+  var center = pos.length
+    ? [pos.reduce(function (s, r) { return s + r.lat; }, 0) / pos.length, pos.reduce(function (s, r) { return s + r.lng; }, 0) / pos.length]
+    : [-21.1278, -47.9912]; // Sertãozinho-SP: a cidade da SexS, centro de partida
+  COV.mapa = L.map('cov-map', { scrollWheelZoom: true }).setView(center, pos.length ? 13 : 11);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© OpenStreetMap'
+  }).addTo(COV.mapa);
+  COV.camada = L.layerGroup().addTo(COV.mapa);
+  COV.mapa.on('click', function (e) {
+    if (!COV.marcando) return;
+    var rid = COV.marcando; COV.marcando = null;
+    covSalvar(rid, { lat: +e.latlng.lat.toFixed(6), lng: +e.latlng.lng.toFixed(6), geo_source: 'manual' },
+      'Pino salvo — arrastei onde a CEO mandou ✓');
+  });
+  covDraw();
+}
+
+function covDraw() {
+  if (!COV.mapa || !COV.camada) return;
+  COV.camada.clearLayers();
+  var L2 = window.L, rs = COV.dados.resellers;
+  var marc = [];
+  rs.forEach(function (r) {
+    if (r.lat == null || r.lng == null) return;
+    if (r.status !== 'ativa' && !COV.showInativas) return;
+    marc.push(r);
+    var est = covEstilo(r);
+    var vizinhos = rs.filter(function (o) {
+      return o.id !== r.id && o.status === 'ativa' && r.status === 'ativa' && o.lat != null &&
+             covDistKm(r, o) <= COV.raio * 2;
+    }).length;
+    var forte = r.status === 'ativa' && vizinhos >= 1;
+    L2.circle([r.lat, r.lng], {
+      radius: COV.raio * 1000, color: est.cor, weight: forte ? 3 : 1.5,
+      dashArray: est.trace || null, fillColor: est.cor, fillOpacity: r.status === 'ativa' ? 0.13 : 0.05
+    }).addTo(COV.camada);
+    var m = L2.marker([r.lat, r.lng], {
+      icon: L2.divIcon({
+        className: '',
+        iconSize: [14, 14], iconAnchor: [7, 7],
+        html: '<div style="width:14px;height:14px;border-radius:50%;background:' + est.cor +
+              ';border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5)"></div>'
+      })
+    }).addTo(COV.camada);
+    m.bindTooltip((forte ? '💪 ' : '') + r.name + ' · ' + covBrl(r.cents_30d) + '/30d', { direction: 'top' });
+    m.bindPopup(covPopupHtml(r), { maxWidth: 320, className: 'cov-pop' });
+  });
+  if (marc.length) {
+    try { COV.mapa.fitBounds(L2.latLngBounds(marc.map(function (r) { return [r.lat, r.lng]; })), { padding: [40, 40], maxZoom: 15 }); } catch (e) {}
+  }
+  COV.mapa.off('popupopen', covWirePopup); COV.mapa.on('popupopen', covWirePopup);
+}
+
+function covPopupHtml(r) {
+  var est = covEstilo(r);
+  return '<div style="font-size:12px;min-width:250px">' +
+    '<b style="font-size:14px">' + esc(r.name) + '</b> <span style="color:' + est.cor + '">●</span> ' + esc(est.texto) +
+    (r.bairro ? '<div style="color:var(--t2)">📍 ' + esc(r.bairro) + '</div>' : '') +
+    '<div style="color:var(--t3);font-size:11px;margin:2px 0 8px">' + esc(r.address || 'endereço não cadastrado') + '</div>' +
+    '<div style="margin:4px 0"><input id="cov-p-addr" value="' + esc(r.address || '') + '" placeholder="endereço completo" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--p2);color:var(--t1)"></div>' +
+    '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+      '<input id="cov-p-bairro" value="' + esc(r.bairro || '') + '" placeholder="bairro" style="flex:1;box-sizing:border-box;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--p2);color:var(--t1)">' +
+      '<input id="cov-p-cep" placeholder="CEP" style="width:86px;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--p2);color:var(--t1)">' +
+    '</div>' +
+    '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+      '<button class="btn-s" onclick="covLocalizar(' + r.id + ')">🔎 Localizar</button>' +
+      '<button class="btn-s" onclick="covMarcar(' + r.id + ')">🖐 posicionar no mapa</button>' +
+      '<button class="btn-s" onclick="covSalvar(' + r.id + ', {address:document.getElementById(\'cov-p-addr\').value, bairro:document.getElementById(\'cov-p-bairro\').value})">💾 dados</button>' +
+      (r.lat != null ? '<button class="btn-s" onclick="covSalvar(' + r.id + ', {lat:null,lng:null})" title="tira o pino (mantém cadastro)">🧹 limpar pino</button>' : '') +
+    '</div>' +
+    '<div id="cov-p-msg" style="font-size:11px;color:var(--t3);margin-top:6px">' +
+      (r.geo_source ? 'pino por ' + esc(r.geo_source) + ' em ' + esc(String(r.geo_at || '').slice(0, 16)) : 'ainda sem pino') + '</div>' +
+    '</div>';
+}
+function covWirePopup() {} // hooks por id vivam só enquanto o popup está aberto
+
+function covMsg(txt, cor) {
+  var m = document.getElementById('cov-p-msg');
+  if (m) { m.innerHTML = '<span style="color:' + (cor || 'var(--t3)') + '">' + esc(txt) + '</span>'; }
+}
+
+function covMarcar(id) {
+  COV.marcando = id;
+  if (COV.mapa) COV.mapa.closePopup();
+  toast('Clique no LUGAR exato do mapa para salvar o pino de ' + covNome(id));
+}
+function covNome(id) { var r = (COV.dados.resellers || []).filter(function (x) { return x.id === id; })[0]; return r ? r.name.split(' ')[0] : ''; }
+
+async function covSalvar(id, campos, okMsg) {
+  try {
+    await api('/api/resellers/' + id, { method: 'PUT', body: JSON.stringify(campos) });
+    if (okMsg) toast(okMsg, 'ok');
+    await covRecarregarSilencioso();
+  } catch (e) { covMsg('erro: ' + e.message, '#f87171'); toast('Erro ao salvar: ' + e.message); }
+}
+
+async function covLocalizar(id) {
+  var elAddr = document.getElementById('cov-p-addr'), elCep = document.getElementById('cov-p-cep');
+  covMsg('consultando ViaCEP/OpenStreetMap…');
+  try {
+    var r = await api('/api/admin/coverage/locate', { method: 'POST', body: JSON.stringify({
+      reseller_id: id, address: elAddr ? elAddr.value : undefined, cep: elCep ? elCep.value : undefined
+    }) });
+    toast('Pino localizado' + (r.bairro ? ' · bairro ' + r.bairro : '') + (r.exato ? '' : ' (referência aproximada — confira)'), 'ok');
+    await covRecarregarSilencioso();
+  } catch (e) {
+    covMsg(e.message + ' — use 🖐 posicionar', '#f59e0b');
+  }
+}
+
+async function covRecarregarSilencioso() {
+  try { COV.dados = await api('/api/admin/coverage'); } catch (e) {}
+  covPaintSide(); covPaintSem();
+  if (COV.mapa) covDraw();
+}
+
+function covGroups() {
+  var ativos = COV.dados.resellers.filter(function (r) { return r.status === 'ativa'; });
+  var porBairro = {};
+  ativos.forEach(function (r) {
+    var b = r.bairro || '(bairro não identificado)';
+    (porBairro[b] = porBairro[b] || { bairro: b, girls: [], cents: 0 }).girls.push(r);
+    porBairro[b].cents += r.cents_30d || 0;
+  });
+  var arr = Object.keys(porBairro).map(function (k) {
+    var g = porBairro[k];
+    var isolada = g.girls.length === 1 && g.girls[0].lat != null && !ativos.some(function (o) {
+      return o.id !== g.girls[0].id && o.lat != null && covDistKm(g.girls[0], o) <= COV.raio * 2;
+    });
+    var semGiro = g.girls.length && g.cents === 0;
+    var status = g.girls.length >= 2 ? '💪 zona forte' : (semGiro ? '😴 sem giro' : (isolada ? '🏝️ isolada' : 'ok'));
+    return { bairro: g.bairro, n: g.girls.length, cents: g.cents, status: status, nomes: g.girls.map(function (x) { return x.name.split(' ')[0]; }) };
+  });
+  arr.sort(function (a, b) { return b.cents - a.cents; });
+  return arr;
+}
+
+function covPaintSide() {
+  var el = document.getElementById('cov-side'); if (!el) return;
+  var gs = covGroups();
+  var h = '<div style="border:1px solid var(--bd);border-radius:var(--r2);padding:12px;height:100%;box-sizing:border-box">' +
+    '<div style="font-weight:700;font-size:13px;margin-bottom:2px">🏘️ Força por bairro</div>' +
+    '<div style="font-size:11px;color:var(--t3);margin-bottom:8px">raio ' + COV.raio + ' km · vizinho a até ' + (COV.raio * 2).toFixed(1) + ' km conta como cobertura</div>';
+  if (!gs.length) h += '<div class="empty" style="font-size:12px">Nenhuma revendedora ativa ainda.</div>';
+  gs.forEach(function (g) {
+    h += '<div style="border-top:1px dashed var(--bd);padding:8px 0">' +
+      '<div style="display:flex;gap:6px;align-items:baseline;flex-wrap:wrap"><b style="font-size:13px">' + esc(g.bairro) + '</b>' +
+      '<span style="font-size:10px;padding:2px 8px;border-radius:999px;border:1px solid var(--bd);color:' +
+        (g.status.indexOf('forte') >= 0 ? '#16a34a' : g.status.indexOf('isolada') >= 0 ? '#f59e0b' : g.status.indexOf('giro') >= 0 ? '#9ca3af' : 'var(--t2)') + '">' + g.status + '</span></div>' +
+      '<div style="font-size:11px;color:var(--t3);margin-top:2px">' + g.n + ' revendedora(s) · ' + covBrl(g.cents) + '/30d · ' + esc(g.nomes.join(', ')) + '</div>' +
+      (g.status.indexOf('isolada') >= 0 ? '<div style="font-size:11px;color:#f59e0b;margin-top:2px">→ frente isolada: é onde vale prospectar mais uma</div>' : '') +
+      '</div>';
+  });
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function covPaintSem() {
+  var el = document.getElementById('cov-sem'); if (!el) return;
+  var sem = COV.dados.resellers.filter(function (r) { return r.lat == null; });
+  if (!sem.length) { el.innerHTML = ''; return; }
+  var h = '<div class="panel" style="margin-top:12px"><div class="st" style="margin-top:0">📌 Ainda sem pino no mapa (' + sem.length + ')</div>';
+  sem.forEach(function (r) {
+    h += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 0;border-bottom:1px dashed var(--bd);font-size:12px">' +
+      '<b>' + esc(r.name) + '</b>' + (r.status !== 'ativa' ? '<span style="color:var(--t3);font-size:10px">inativa</span>' : '') +
+      '<input id="cov-s-addr-' + r.id + '" value="' + esc(r.address || '') + '" placeholder="endereço (rua, nº, bairro) — dá pra salvar aqui" style="flex:1;min-width:170px;padding:6px 8px;border:1px solid var(--bd);border-radius:6px;background:var(--p2);color:var(--t1);font-size:12px">' +
+      '<button class="btn-s" onclick="covSalvar(' + r.id + ', {address:document.getElementById(\'cov-s-addr-' + r.id + '\').value})" title="salvar endereço">💾</button>' +
+      (r.address || r.bairro ? '<button class="btn-s" onclick="covLocalizarSem(' + r.id + ')">🔎 Localizar</button>' : '') +
+      '<button class="btn-s" onclick="covMarcar(' + r.id + ')">🖐 posicionar</button></div>';
+  });
+  el.innerHTML = h + '<div style="font-size:11px;color:var(--t3);margin-top:6px">Endereço em branco? Cadastre na aba 👥 Revendedoras (formulário) ou cole aqui pelo popup do mapa.</div></div>';
+}
+
+async function covLocalizarSem(id) {
+  var el = document.getElementById('cov-s-addr-' + id);
+  try {
+    var r = await api('/api/admin/coverage/locate', { method: 'POST', body: JSON.stringify({ reseller_id: id, address: el ? el.value : undefined }) });
+    toast('Pino de ' + covNome(id) + ' cravado' + (r.bairro ? ' · ' + r.bairro : ''), 'ok');
+    await covRecarregarSilencioso();
+  } catch (e) { toast('Não achei: ' + e.message + ' — use 🖐 posicionar', 'warn'); }
+}
+// ===================== FIM 🗺️ ABRANGÊNCIA =====================
+
 var SI_IN = null; // modal de "registrar compra de estoque" (um por vez)
 
 function siNorm(s) { return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' '); }

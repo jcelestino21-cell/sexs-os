@@ -44,6 +44,15 @@ db.exec(`CREATE TABLE IF NOT EXISTS fixed_expenses (
   due_day INTEGER NOT NULL CHECK(due_day BETWEEN 1 AND 31), active INTEGER NOT NULL DEFAULT 1,
   created_by INTEGER REFERENCES users(id), created_at TEXT NOT NULL DEFAULT (datetime('now'))
 )`);
+// 🗺️ Abrangência: onde cada revendedora está. A coluna address já existia (e já era
+// usada nos documentos de contratação!) — o que faltava era persistir o ponto que a CEO
+// confirma no mapa (auto ou arrastado) e o bairro para agrupar mesmo quando o geocode falha.
+try {
+  const colsRes = new Set(db.prepare('PRAGMA table_info(resellers)').all().map((c) => c.name));
+  for (const [name, def] of [['lat','REAL'],['lng','REAL'],['bairro','TEXT'],['geo_source','TEXT'],['geo_at','TEXT']]) {
+    if (!colsRes.has(name)) db.exec(`ALTER TABLE resellers ADD COLUMN ${name} ${def}`);
+  }
+} catch (e) { console.log('[Migration] colunas geo em resellers:', e.message); }
 // Vínculo produto ↔ fornecedor. Nascido da necessidade da CEO de saber ONDE comprar cada
 // item: o cadastro guarda um internal_code solto, mas não guarda de qual fornecedor ele é,
 // nem o link, nem o preço que o fornecedor praticava quando o vínculo foi confirmado. Aqui
@@ -801,7 +810,22 @@ router.put('/api/resellers/:id', requireCapability('resellers:write', async (req
     if (phone !== undefined) { updates.push('phone = ?'); values.push(phone); }
     if (address !== undefined) { updates.push('address = ?'); values.push(address); }
     if (commission_pct !== undefined) { updates.push('commission_pct = ?'); values.push(commission_pct); }
-    
+    if (body.bairro !== undefined) { updates.push('bairro = ?'); values.push(String(body.bairro || '').trim() || null); }
+    // Ponto no mapa: lat/lng vêm SEMPRE juntos (os dois números, ou null+null para limpar).
+    if (body.lat !== undefined || body.lng !== undefined) {
+      if (body.lat === null && body.lng === null && body.lat !== undefined && body.lng !== undefined) {
+        updates.push('lat = NULL', 'lng = NULL', "geo_at = datetime('now')");
+      } else {
+        const la = Number(body.lat), ln = Number(body.lng);
+        if (!Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) {
+          throw new Error('lat/lng inválidos — mande os dois números, ou null nos dois para limpar');
+        }
+        updates.push('lat = ?', 'lng = ?'); values.push(la, ln);
+        updates.push("geo_at = datetime('now')");
+        const src = ['nominatim','viacep+nominatim','manual'].includes(body.geo_source) ? body.geo_source : 'manual';
+        updates.push('geo_source = ?'); values.push(src);
+      }
+    }
     if (updates.length === 0) throw new Error('Nenhum campo para atualizar');
     
     values.push(params.id);
@@ -822,6 +846,108 @@ router.post('/api/resellers/:id/regenerate-access', requireCapability('resellers
   } catch (e) { sendJson(res, 400, { error: e.message }); }
 }));
 
+
+
+// ---- 🗺️ Abrangência (CEO): onde estão as revendedoras, o giro de cada uma e os buracos ----
+// Geocodificação usa serviços públicos sem chave: ViaCEP (CEP → rua/bairro/cidade) e o
+// Nominatim do OpenStreetMap (endereço → coordenada). Nenhum dado é gravado por leitura
+// de terceiros: o ponto só é salvo pela CEO (auto confirmado, ou arrastado no mapa).
+// O viewbox amarra a busca em Sertãozinho-SP para uma rua homônima de outro estado não
+// "vencer" por acidente.
+const GEO_UA = { 'User-Agent': 'SexS-OS/1.0 (portal interno da SexS; uso: pino de mapa)', 'Accept': 'application/json' };
+const GEO_VIEWBOX = '-48.13,-20.99,-47.85,-21.27'; // left,top,right,bottom (lon,lat) — raio folgado da cidade
+async function httpJsonShort(url, headers, ms = 9000) {
+  const ctrl = new AbortController();
+  const tmo = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const r = await fetch(url, { headers, signal: ctrl.signal });
+    if (!r.ok) return { ok: false, status: r.status };
+    return { ok: true, data: await r.json() };
+  } catch (e) {
+    return { ok: false, erro: e.name === 'AbortError' ? 'tempo esgotado no serviço de mapa' : String(e.message || e) };
+  } finally { clearTimeout(tmo); }
+}
+async function geocodeEndereco({ cep, address }) {
+  let q = String(address || '').trim();
+  let bairro = null, viaLogradouro = null, viaCidade = null;
+  const cepDigits = String(cep || '').replace(/\D/g, '');
+  if (cepDigits.length === 8) {
+    const v = await httpJsonShort('https://viacep.com.br/ws/' + cepDigits + '/json/', { Accept: 'application/json' });
+    if (v.ok && v.data && !v.data.erro) {
+      bairro = v.data.bairro || null;
+      viaLogradouro = String(v.data.logradouro || '').trim() || null;
+      viaCidade = [v.data.localidade, v.data.uf].filter(Boolean).join(' - ');
+      if (!q) q = [v.data.logradouro, v.data.complemento, v.data.bairro, v.data.localidade + ' - ' + v.data.uf].filter(Boolean).join(', ');
+    }
+  }
+  if (!q) return { ok: false, erro: 'informe CEP ou endereço' };
+  // Escada de tentativas: cidade pequena no OSM costuma gravar rua sem número e às vezes
+  // sem acento — um único Q "exato" perderia por bobagem. Ordem: como está (preso na
+  // cidade), sem número, e por fim logradouro puro do ViaCEP + cidade.
+  const limpo = (s) => String(s).replace(/\b(n[ºo]?\.?\s*\d+[a-z0-9-]*)\b/ig, '').replace(/\s*[–-]\s*CEP.*$/i, '').replace(/\s{2,}/g, ' ').trim();
+  const variants = [q];
+  const s1 = limpo(q);
+  if (s1 && s1 !== q) variants.push(s1);
+  if (viaLogradouro && viaCidade && limpo(viaLogradouro + ', ' + viaCidade) !== s1) variants.push(limpo(viaLogradouro + ', ' + viaCidade));
+  for (let i = 0; i < variants.length; i++) {
+    const params = { format: 'jsonv2', limit: '1', countrycodes: 'br', 'accept-language': 'pt-BR', q: variants[i], viewbox: GEO_VIEWBOX };
+    if (i === 0) params.bounded = '1';
+    const u = new URL('https://nominatim.openstreetmap.org/search');
+    u.search = new URLSearchParams(params);
+    const r = await httpJsonShort(u.toString(), GEO_UA, 7000);
+    if (r.ok && Array.isArray(r.data) && r.data.length) {
+      const hit = r.data[0]; const d = hit.address || {};
+      return { ok: true, lat: +hit.lat, lng: +hit.lon,
+        bairro: d.suburb || d.city_district || d.neighbourhood || bairro || null,
+        endereco_formatado: hit.display_name, tentativa: i + 1,
+        exato: !!d.house_number || hit.addresstype === 'road',
+        source: cepDigits.length === 8 ? 'viacep+nominatim' : 'nominatim' };
+    }
+  }
+  return { ok: false, erro: 'o mapa não achou esse endereço — posicione o pino arrastando', bairro };
+}
+
+router.post('/api/admin/coverage/locate', requireAuth(async (req, res) => {
+  try {
+    const body = await readJsonBody(req);
+    const rid = Number(body.reseller_id);
+    const r0 = db.prepare('SELECT * FROM resellers WHERE id = ?').get(rid);
+    if (!r0) return sendJson(res, 404, { error: 'Revendedora não encontrada' });
+    const addrText = String(body.address || '').trim() || r0.address;
+    const g = await geocodeEndereco({ cep: body.cep, address: addrText });
+    if (!g.ok) return sendJson(res, 422, { error: g.erro, bairro: g.bairro || null });
+    db.prepare(`UPDATE resellers SET lat = ?, lng = ?, geo_source = ?, geo_at = datetime('now'),
+                bairro = COALESCE(?, bairro), address = COALESCE(?, address) WHERE id = ?`)
+      .run(g.lat, g.lng, g.source, g.bairro || null, String(body.address || '').trim() || null, rid);
+    logAudit({ actorUserId: req.user.id, actorLabel: req.user.name, action: 'reseller.geocoded',
+      entityType: 'reseller', entityId: rid, details: { lat: g.lat, lng: g.lng, bairro: g.bairro, exato: g.exato } });
+    sendJson(res, 200, { ok: true, lat: g.lat, lng: g.lng, bairro: g.bairro, exato: g.exato, endereco_formatado: g.endereco_formatado });
+  } catch (e) { sendJson(res, 500, { error: e.message }); }
+}, { roles: ['ceo'] }));
+
+router.get('/api/admin/coverage', requireAuth((req, res) => {
+  const resellers = db.prepare(`SELECT id, name, status, phone, address, bairro, lat, lng, geo_source, geo_at, commission_pct
+                                FROM resellers ORDER BY name`).all();
+  const giro = db.prepare(`
+    SELECT k.reseller_id, COALESCE(SUM(ks.quantity * ks.unit_price_cents), 0) AS cents_30d,
+           COALESCE(SUM(CASE WHEN ks.status = 'confirmada' THEN ks.quantity ELSE 0 END), 0) AS un_30d
+    FROM kit_sales ks JOIN kit_items ki ON ki.id = ks.kit_item_id JOIN kits k ON k.id = ki.kit_id
+    WHERE ks.created_at >= datetime('now','-30 days') AND ks.status IN ('confirmada','informada')
+    GROUP BY k.reseller_id`).all();
+  const gmap = new Map(giro.map((g) => [g.reseller_id, g]));
+  const linhas = resellers.map((r) => ({ ...r,
+    cents_30d: (gmap.get(r.id) || {}).cents_30d || 0,
+    un_30d: (gmap.get(r.id) || {}).un_30d || 0 }));
+  sendJson(res, 200, {
+    resellers: linhas,
+    totais: {
+      ativas: resellers.filter((r) => r.status === 'ativa').length,
+      posicionadas: resellers.filter((r) => r.lat != null && r.lng != null).length,
+      ativas_sem_posicao: resellers.filter((r) => r.status === 'ativa' && r.lat == null).length,
+      cents_30d: linhas.filter((r) => r.status === 'ativa').reduce((s, r) => s + r.cents_30d, 0),
+    },
+  });
+}, { roles: ['ceo'] }));
 router.get('/api/ranking', requireCapability('ranking:read', (req, res) => {
   sendJson(res, 200, { ranking: kitService.rankingFull() });
 }));
