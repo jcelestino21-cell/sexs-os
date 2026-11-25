@@ -677,12 +677,18 @@ async function renderDashboard() {
     var charts = chartsData.charts || {};
     var alerts = chartsData.alerts || [];
     
-    // Cards de métricas principais
+    // Cinco números que pedem atitude. O resto (gráficos, atividade, vitrine) vai para
+    // dentro de um bloco dobrável — era 11 painéis abertos na mesma tela.
+    var kbs = d.kits_by_status || {};
+    var porStatus = Array.isArray(kbs) ? kbs.reduce(function(m,x){ m[x.status] = (m[x.status]||0) + (x.count||x.total||1); return m; }, {}) : kbs;
+    var kitsAbertos = Object.keys(porStatus).reduce(function(s,k){ return (k==='encerrado'||k==='rejeitado') ? s : s+(porStatus[k]||0); }, 0);
+    var naHistorico = (porStatus.encerrado||0) + (porStatus.rejeitado||0);
+    var aReceber = f.valor_a_receber_pendente_cents || 0;
     var cardsHtml = '<div class="dg">' +
-      '<div class="dc accent"><div class="label">💎 Lucro Líquido</div><div class="value">'+fmt(f.lucro_liquido_cents)+'</div><div class="sub">faturamento - custos - despesas</div></div>' +
-      '<div class="dc"><div class="label">💰 Faturamento</div><div class="value">'+fmt(f.faturamento_confirmado_cents)+'</div><div class="sub">kits fechados</div></div>' +
-      '<div class="dc"><div class="label">📦 Estoque Investido</div><div class="value">'+fmt(f.investimento_estoque_cents)+'</div><div class="sub">compra de produtos</div></div>' +
-      '<div class="dc"><div class="label">👥 Revendedoras</div><div class="value">'+d.active_resellers+'</div><div class="sub">de '+d.total_resellers+' ativas</div></div>' +
+      '<div class="dc accent"><div class="label">💎 Lucro Líquido</div><div class="value">'+fmt(f.lucro_liquido_cents)+'</div><div class="sub">após comissões, despesas e CMV</div></div>' +
+      '<div class="dc"><div class="label">⏳ Comissão a pagar</div><div class="value" style="color:'+(f.comissao_a_pagar_cents?'#f87171':'#4ade80')+'">'+fmt(f.comissao_a_pagar_cents)+'</div><div class="sub">pago até agora: '+fmt(f.comissao_paga_cents)+'</div></div>' +
+      '<div class="dc"><div class="label">💵 Acertos a receber</div><div class="value" style="color:'+(aReceber?'#f87171':'#4ade80')+'">'+fmt(aReceber)+'</div><div class="sub">'+(f.valor_recebido_cents ? 'recebido '+fmt(f.valor_recebido_cents) : 'nenhum recebimento lançado')+'</div></div>' +
+      '<div class="dc"><div class="label">📦 Kits na rua</div><div class="value">'+kitsAbertos+'</div><div class="sub">'+naHistorico+' no histórico · '+(d.low_stock_products.length)+' produtos abaixo do mínimo</div></div>' +
       '<div class="dc"><div class="label">📊 Vendas Hoje</div><div class="value">'+d.today.sales_today_count+'</div><div class="sub">'+fmt(d.today.revenue_informed_today_cents)+'</div></div>' +
       '</div>';
     
@@ -730,7 +736,10 @@ async function renderDashboard() {
     // Vitrine pública (catálogo da cliente final) — só a CEO configura
     var catalogHtml = (S.user.role === 'ceo') ? '<div class="panel" style="margin-bottom:20px"><div class="st" style="margin-top:0">🌐 Catálogo público <span style="font-weight:400;font-size:11px;color:var(--t3)">— vitrine da cliente, sem preço</span></div><div id="catBox" class="empty">Carregando…</div></div>' : '';
 
-    v.innerHTML = cardsHtml + alertsHtml + chartsHtml + lowStockHtml + catalogHtml + activityHtml;
+    var maisHtml = '<details class="panel" style="margin-bottom:20px"><summary style="cursor:pointer;font-weight:600;font-size:13px">📊 Gráficos, atividade recente e vitrine pública <span style="font-weight:400;color:var(--t3);font-size:11px">— nada disso some, só sai do caminho</span></summary><div style="margin-top:14px">' + chartsHtml + catalogHtml + activityHtml + '</div></details>';
+    v.innerHTML = cardsHtml + alertsHtml + lowStockHtml + maisHtml;
+    var det = v.querySelector('details');
+    if (det) det.addEventListener('toggle', function(){ if (det.open) setTimeout(function(){ renderCharts(charts); loadCatalogPanel(); }, 80); });
     
     // Renderizar gráficos após o HTML estar no DOM
     setTimeout(function() {
@@ -1183,6 +1192,22 @@ async function regenAccess(id, name) {
 }
 
 // ===== KITS - Fluxo completo =====
+async function addReceivablePayment() {
+  var sel = document.getElementById('rec-reseller'), am = document.getElementById('rec-amount'), kt = document.getElementById('rec-kit');
+  var resellerId = parseInt(sel.value);
+  var cents = Math.round(parseFloat(String(am.value||'').replace(',','.')) * 100);
+  if (!resellerId) return toast('Escolha a revendedora que pagou');
+  if (!cents || cents <= 0) return toast('Informe o valor recebido');
+  try {
+    await api('/api/financial/receivable-payments', {method:'POST', body: JSON.stringify({
+      reseller_id: resellerId, amount_cents: cents, kit_id: kt.value ? Number(kt.value) : null,
+      notes: 'Lançado pela CEO no Financeiro'
+    })});
+    toast('Recebimento registrado ✓');
+    renderFinancial();
+  } catch(e) { toast(e.message); }
+}
+
 async function renderKits() {
   var v = $('#v-kits'); if(!v) return;
   v.innerHTML = '<div class="panel"><div class="empty">Carregando...</div></div>';
@@ -1202,22 +1227,40 @@ async function renderKits() {
         '</div>';
     }
     
+    var todos = kitsData.kits;
+    var ativos = todos.filter(function(k){ return k.status!=='encerrado' && k.status!=='rejeitado'; });
+    var historico = todos.filter(function(k){ return k.status==='encerrado' || k.status==='rejeitado'; });
+    if (!S.kitsFilter) S.kitsFilter = 'ativos';
+    var lista = S.kitsFilter==='todos' ? todos : (S.kitsFilter==='historico' ? historico : ativos);
+    var aPagar = todos.reduce(function(s,k){ return s + (k.commission_due_cents||0); }, 0);
+    var aReceber = todos.reduce(function(s,k){ return s + (k.receivable_open_cents||0); }, 0);
+    var filtros = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">' +
+      '<button class="btn-sm' + (S.kitsFilter==='ativos'?' ok':'') + '" onclick="S.kitsFilter=\'ativos\';renderKits()">Na rua (' + ativos.length + ')</button>' +
+      '<button class="btn-sm' + (S.kitsFilter==='historico'?' ok':'') + '" onclick="S.kitsFilter=\'historico\';renderKits()">Histórico (' + historico.length + ')</button>' +
+      '<button class="btn-sm' + (S.kitsFilter==='todos'?' ok':'') + '" onclick="S.kitsFilter=\'todos\';renderKits()">Todos (' + todos.length + ')</button>' +
+      '<span style="margin-left:auto;font-size:12px;color:var(--t3)">comissão a pagar <b style="color:'+(aPagar?'#f87171':'#4ade80')+'">' + fmt(aPagar) + '</b> · acertos a receber <b style="color:'+(aReceber?'#f87171':'#4ade80')+'">' + fmt(aReceber) + '</b></span>' +
+      '</div>';
     var kitsHtml = '';
-    if (kitsData.kits.length) {
-      kitsHtml = alertHtml + '<div class="st">Kits (' + kitsData.kits.length + ')</div>';
-      kitsData.kits.forEach(function(k) {
+    if (lista.length) {
+      kitsHtml = alertHtml + filtros + '<div class="st">Kits (' + lista.length + ')</div>';
+      lista.forEach(function(k) {
         var actions = '';
         if (k.status === 'sugerido') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="switchTab(\'kitmontar\')">🪄 Revisar e aprovar em Montar Kit</button></div>';
         else if (k.status === 'aprovado') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button><button class="reject" onclick="kitAction('+k.id+',\'cancel\')">Cancelar</button></div>';
         else if (k.status === 'em_preparacao') actions = '<div class="pa"><button class="approve" onclick="kitAction('+k.id+',\'confirm-delivery\')">Confirmar entrega</button></div>';
         else if (k.status === 'entregue') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="kitAction('+k.id+',\'request-closure\')">Solicitar fechamento</button></div>';
-        else if (k.status === 'aguardando_fechamento') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="finalizeAndClose('+k.id+')">✅ Conferir e Fechar</button><button class="reject" onclick="forceCloseKit('+k.id+')">⚡ Forçar</button></div>';
+        else if (k.status === 'aguardando_fechamento') actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button><button class="approve" onclick="finalizeAndClose('+k.id+')">✅ Conferir e Fechar</button>' +
+          '<details style="display:inline-block;margin-left:10px;vertical-align:middle"><summary style="cursor:pointer;font-size:11px;color:var(--t3)">avançado</summary>' +
+          '<div style="margin-top:6px;padding:10px;border:1px dashed var(--bd);border-radius:8px;font-size:11px;color:var(--t2);max-width:340px">Confirma as <b>' + (k.items_pending||0) + ' venda(s)</b> informadas (' + fmt(k.pending_value_cents||0) + ') e fecha <b>sem conferência física item a item</b>.' +
+          '<div style="margin-top:8px"><button class="reject" onclick="forceCloseKit('+k.id+')">⚡ Forçar fechamento</button></div></div></details>' +
+          '</div>';
         else if (k.status === 'encerrado') {
           var pago = (k.commission_paid_cents || 0) > 0;
           actions = '<div class="pa"><button class="approve" style="background:var(--ac);border-color:var(--ac)" onclick="toggleKitDetails('+k.id+')">👁️ Ver Itens</button>' +
             (pago
               ? '<span class="pill" style="background:#10b98122;color:#10b981;border:1px solid #10b981;padding:6px 10px;border-radius:999px;font-size:12px">💰 Pago '+fmt(k.commission_paid_cents)+' em '+esc(String(k.commission_paid_at||'').slice(0,10))+'</span>'
-              : '<button class="approve" style="background:#10b981;border-color:#10b981" onclick="confirmPayment('+k.id+')">💰 Confirmar Pagamento</button>') +
+              : '<button class="approve" style="background:#10b981;border-color:#10b981" onclick="confirmPayment('+k.id+')">💰 Pagar comissão'+((k.commission_due_cents||0)>0?' de '+fmt(k.commission_due_cents):'')+'</button>') +
+            ((k.receivable_open_cents||0) > 0 ? '<span class="pill" style="border:1px solid var(--bd);padding:6px 10px;border-radius:999px;font-size:12px;color:var(--t2)">⏳ acerto a receber '+fmt(k.receivable_open_cents)+'</span>' : '') +
             '</div>';
         }
 
@@ -1227,7 +1270,7 @@ async function renderKits() {
           actions + '<div id="kit-details-' + k.id + '" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--bd)"></div>' + '</div>';
       });
     } else {
-      kitsHtml = '<div class="panel"><div class="empty">Nenhum kit ainda. Monte o primeiro na aba 🪄 Montar Kit! 📦</div></div>';
+      kitsHtml = filtros + '<div class="panel"><div class="empty">' + (todos.length ? 'Nada nesta visão — veja o Histórico (' + historico.length + ' kits).' : 'Nenhum kit ainda. Monte o primeiro na aba 🪄 Montar Kit! 📦') + '</div></div>';
     }
 
     var fechamentoHtml = '<div class="panel"><div class="st" style="margin-top:0">📦 Entrega e fechamento dos kits</div>' +
@@ -2002,7 +2045,7 @@ async function renderFinancial() {
   var v = $('#v-financial'); if(!v) return;
   try {
     var selectedMonth = localStorage.getItem('sexs_fin_month') || new Date().toISOString().slice(0,7);
-    var [sumData, expData, fixedData] = await Promise.all([api('/api/financial/summary?month='+selectedMonth), api('/api/financial/expenses'), api('/api/financial/fixed-expenses')]);
+    var [sumData, expData, fixedData, recData, girlsData] = await Promise.all([api('/api/financial/summary?month='+selectedMonth), api('/api/financial/expenses'), api('/api/financial/fixed-expenses'), api('/api/financial/receivable-payments'), api('/api/resellers')]);
     var filterHtml = '<div class="panel" style="margin-bottom:16px"><b>📅 Período financeiro</b> <input type="month" id="finance-month" value="'+selectedMonth+'" onchange="localStorage.setItem(\'sexs_fin_month\',this.value);renderFinancial()"> <span style="font-size:12px;color:var(--t3)">Previsões e totais calculados automaticamente para o mês.</span></div>';
     var s = sumData.summary || sumData;
     var f = fmt;
@@ -2066,6 +2109,29 @@ async function renderFinancial() {
 
     var dreHtml = '<div class="panel" style="margin-bottom:16px"><div class="st" style="margin-top:0">📊 Demonstração do Resultado</div><table style="width:100%"><tr><td>Entradas recebidas</td><td style="text-align:right;color:#4ade80">'+f(s.entradas_periodo_cents||0)+'</td></tr><tr><td>− Comissões das revendedoras</td><td style="text-align:right;color:#f87171">− '+f(s.comissao_gerada_cents||0)+'</td></tr><tr style="font-weight:700;border-top:1px solid var(--bd)"><td>Receita líquida SexS</td><td style="text-align:right">'+f((s.entradas_periodo_cents||0)-(s.comissao_gerada_cents||0))+'</td></tr><tr><td>− Custo dos produtos vendidos</td><td style="text-align:right;color:#f87171">− '+f(s.custo_mercadorias_vendidas_cents||0)+'</td></tr><tr style="font-weight:700"><td>Lucro bruto</td><td style="text-align:right;color:#4ade80">'+f(s.lucro_bruto_cents||0)+'</td></tr><tr><td>− Despesas fixas</td><td style="text-align:right;color:#f87171">− '+f(s.despesas_fixas_cents||0)+'</td></tr><tr><td>− Despesas variáveis</td><td style="text-align:right;color:#f87171">− '+f(s.despesas_variaveis_cents||0)+'</td></tr><tr style="font-weight:700;border-top:2px solid var(--bd)"><td>Lucro operacional</td><td style="text-align:right;color:var(--ac)">'+f(s.lucro_liquido_cents||0)+'</td></tr></table></div>';
 
+    // O dinheiro que ENTRA: a API já calculava e nenhuma tela mostrava (nem havia onde lançar).
+    var recs = recData.payments || [];
+    var recPend = s.valor_a_receber_pendente_cents || 0;
+    var girlsOpts = (girlsData.resellers || []).filter(function(g){ return g.status === 'ativa'; })
+      .map(function(g){ return '<option value="'+g.id+'">'+esc(g.name)+'</option>'; }).join('');
+    var recebHtml = '<div class="panel" style="margin-bottom:16px"><div class="st" style="margin-top:0">💵 Acertos das revendedoras <span style="font-weight:400;font-size:11px;color:var(--t3)">— o Pix que elas te mandam ao fechar o ciclo</span></div>' +
+      '<div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px;font-size:13px">' +
+        '<span>A receber (kits fechados): <b>'+f(s.valor_a_receber_total_cents||0)+'</b></span>' +
+        '<span>Recebido e lançado: <b style="color:#4ade80">'+f(s.valor_recebido_cents||0)+'</b></span>' +
+        '<span>Em aberto: <b style="color:'+(recPend?'#f87171':'#4ade80')+'">'+f(recPend)+'</b></span>' +
+      '</div>' +
+      (recs.length
+        ? '<table style="width:100%"><tr><th>Data</th><th>Revendedora</th><th>Kit</th><th style="text-align:right">Valor</th><th>Obs.</th></tr>' +
+          recs.slice(0,8).map(function(x){ return '<tr><td>'+esc(String(x.created_at||'').slice(0,10))+'</td><td>'+esc(x.reseller_name||'')+'</td><td>'+(x.kit_id?('#'+x.kit_id):'—')+'</td><td style="text-align:right;color:#4ade80">'+f(x.amount_cents)+'</td><td style="font-size:12px;color:var(--t3)">'+esc(x.notes||'')+'</td></tr>'; }).join('') +
+          '</table>'
+        : '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">Nenhum recebimento lançado — por isso o caixa mostra entrada R$ 0,00 mesmo com acertos já pagos no Pix.</div>') +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:flex-end">' +
+        '<select id="rec-reseller" style="flex:1;min-width:150px"><option value="">Quem pagou…</option>'+girlsOpts+'</select>' +
+        '<input id="rec-amount" type="number" step="0.01" placeholder="Valor R$" style="width:120px">' +
+        '<input id="rec-kit" type="number" placeholder="Kit (opcional)" style="width:120px">' +
+        '<button class="btn-sm ok" onclick="addReceivablePayment()">Registrar recebimento</button>' +
+      '</div></div>';
+
     var infoHtml = '<div class="panel"><div class="st" style="margin-top:0">ℹ️ Como funciona</div>' +
       '<div style="font-size:13px;color:var(--t2);line-height:1.8">' +
       '• <b>Previsão</b>: vendas informadas pelas revendedoras (ainda não fechadas)<br>' +
@@ -2076,7 +2142,7 @@ async function renderFinancial() {
       '• <b>Caixa</b>: só entra dinheiro quando a revendedora paga o que vendeu' +
       '</div></div>';
 
-    v.innerHTML = filterHtml + cardsHtml + dreHtml + comissaoHtml + fixedHtml + despHtml + '<div class="panel" style="margin-bottom:16px"><div class="st" style="margin-top:0">💵 Resumo de Entradas e Saídas</div><div style="display:flex;gap:24px;flex-wrap:wrap"><span>Entradas: <b style="color:#4ade80">'+f(s.entradas_periodo_cents||0)+'</b></span><span>Saídas: <b style="color:#f87171">'+f(s.saidas_periodo_cents||0)+'</b></span><span>Saldo: <b>'+f(s.saldo_periodo_cents||0)+'</b></span></div></div>' + infoHtml;
+    v.innerHTML = filterHtml + cardsHtml + dreHtml + recebHtml + comissaoHtml + fixedHtml + despHtml + '<div class="panel" style="margin-bottom:16px"><div class="st" style="margin-top:0">💵 Resumo de Entradas e Saídas</div><div style="display:flex;gap:24px;flex-wrap:wrap"><span>Entradas: <b style="color:#4ade80">'+f(s.entradas_periodo_cents||0)+'</b></span><span>Saídas: <b style="color:#f87171">'+f(s.saidas_periodo_cents||0)+'</b></span><span>Saldo: <b>'+f(s.saldo_periodo_cents||0)+'</b></span></div></div>' + infoHtml;
   } catch(e) { v.innerHTML = '<div class="panel"><div class="empty">'+esc(e.message)+'</div></div>'; }
 }
 

@@ -749,8 +749,16 @@ router.get('/api/resellers/basic', requireCapability('resellers:basic', (req, re
 
 // ---- Auditoria ----
 router.get('/api/audit-log', requireAuth((req, res) => {
-  const rows = db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 200').all();
-  sendJson(res, 200, { audit_log: rows.map((r) => ({ ...r, details: r.details_json ? JSON.parse(r.details_json) : null })) });
+  // details_json e details eram o MESMO objeto enviado duas vezes; a tela lê só `details`.
+  const rows = db.prepare('SELECT id, actor_label, action, entity_type, entity_id, created_at, details_json FROM audit_log ORDER BY id DESC LIMIT 200').all();
+  sendJson(res, 200, {
+    audit_log: rows.map((r) => {
+      const { details_json, ...resto } = r;
+      let details = null;
+      try { details = details_json ? JSON.parse(details_json) : null; } catch (e) { details = null; }
+      return { ...resto, details };
+    }),
+  });
 }, { roles: ['ceo'] }));
 
 // ---- Regra de precificação ----

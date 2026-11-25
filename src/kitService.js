@@ -37,7 +37,11 @@ function listKits({ resellerId, status } = {}) {
       (SELECT COALESCE(SUM(ki.quantity_kept_by_reseller + ki.quantity_damaged + ki.quantity_lost),0) FROM kit_items ki WHERE ki.kit_id = k.id) as items_write_off,
       (SELECT COALESCE(SUM(ki.quantity_confirmed_sold * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as sold_value_cents,
       (SELECT COALESCE(SUM(ki.quantity_returned * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as returned_value_cents,
-      (SELECT COALESCE(SUM(ki.quantity_available * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as available_value_cents
+      (SELECT COALESCE(SUM(ki.quantity_available * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as available_value_cents,
+      (SELECT COALESCE(SUM(ki.quantity_pending_closure * ki.unit_sale_price_cents),0) FROM kit_items ki WHERE ki.kit_id = k.id) as pending_value_cents,
+      (SELECT COALESCE(SUM(kc.total_commission_cents),0) FROM kit_closures kc WHERE kc.kit_id = k.id) as closure_commission_cents,
+      (SELECT COALESCE(SUM(kc.total_due_to_sexs_cents),0) FROM kit_closures kc WHERE kc.kit_id = k.id) as closure_due_cents,
+      (SELECT COALESCE(SUM(rp.amount_cents),0) FROM receivable_payments rp WHERE rp.kit_id = k.id) as received_cents
     FROM kits k JOIN resellers r ON r.id = k.reseller_id WHERE 1=1`;
   const params = [];
   if (resellerId) { sql += ' AND k.reseller_id = ?'; params.push(resellerId); }
@@ -63,7 +67,12 @@ function listKits({ resellerId, status } = {}) {
       }
     }
   } catch (e) { /* tabela ainda não criada: kits sem flag de pagamento */ }
-  if (!rows.length) return rows;
+  // Dinheiro que ainda está no meio do caminho, calculado aqui para a tela não ter que
+  // chamar mais quatro rotas para chegar nos mesmos números.
+  rows.forEach((r) => {
+    r.commission_due_cents = Math.max(0, (r.closure_commission_cents || 0) - (r.commission_paid_cents || 0));
+    r.receivable_open_cents = Math.max(0, (r.closure_due_cents || 0) - (r.received_cents || 0));
+  });
   return rows;
 }
 
