@@ -660,8 +660,8 @@ function rankingForReseller(resellerId) {
 /** Acréscimo a um kit que já foi entregue (ou está aguardando fechamento): a unidade
  * sai do estoque físico da empresa e entra no saldo consignado do kit. Se o produto já
  * estiver no kit, a quantidade é somada ao item existente (mesmo preço de venda), para
- * não duplicar linha nem criar preço divergente. Regenera o termo de entrega para a
- * revendedora assinar com o item a mais. */
+ * não duplicar linha nem criar preço divergente. Nao reemite o termo de entrega (decisao da CEO
+ * em 26/11) — o acrescimo entra sem exigir nova assinatura. */
 function addDeliveredItem({ kitId, productId, quantity, actorUser, note }) {
   const kit = getKit(kitId);
   if (!kit) throw new Error('Kit não encontrado.');
@@ -711,10 +711,10 @@ function addDeliveredItem({ kitId, productId, quantity, actorUser, note }) {
       message: `Acréscimo no kit #${kitId} (${kit.reseller.name}): ${qty}x ${product.name}. Estoque da empresa foi baixado em ${qty} un.`,
     });
 
+    // A CEO decidiu (26/11): acréscimo em kit entregue NÃO reemite termo de entrega —
+    // a revendedora não precisa assinar para autorizar; o item entra direto. O termo do
+    // ato da entrega original permanece como está. Auditoria e notificação seguem gravando.
     const refreshed = getKit(kitId);
-    const productNames = {};
-    for (const it of refreshed.items) productNames[it.product_id] = it.product_name;
-    documentService.generateDeliveryDocument(refreshed, refreshed.reseller, refreshed.items, productNames, actorUser.id);
 
     db.exec('COMMIT');
     const item = db.prepare('SELECT * FROM kit_items WHERE id = ?').get(kitItemId);

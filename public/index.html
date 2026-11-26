@@ -3276,6 +3276,22 @@ async function cancelOrder(orderId) {
   } catch(e) { toast(e.message); }
 }
 
+// Balão de cronômetro do ciclo: 30 dias a partir da data de entrega do kit (delivered_at,
+// UTC do banco). Verde até 3 dias do fim, âmbar no fim de semana do prazo, vermelho vencido.
+// Só leitura — nada aqui cobra fechamento nem muda status.
+function portalPrazoChip(kit) {
+  if (!kit || !kit.delivered_at || kit.status === 'encerrado' || kit.status === 'cancelado' || kit.status === 'rejeitado') return '';
+  var dl = Date.parse(String(kit.delivered_at).replace(' ', 'T') + 'Z');
+  if (isNaN(dl)) return '';
+  var prazo = dl + 30 * 864e5;
+  var dias = Math.ceil((prazo - Date.now()) / 864e5);
+  var venc = new Date(prazo).toLocaleDateString('pt-BR');
+  var base = 'display:inline-block;border-radius:999px;padding:4px 10px;font-size:12px;margin:2px 0 8px;border:1px solid ';
+  if (dias > 3) return '<div style="' + base + 'rgba(34,197,94,.45);background:rgba(34,197,94,.10);color:#4ade80">\u23F1\uFE0F fechamento em ' + dias + ' dias \u00b7 vence ' + venc + '</div>';
+  if (dias >= 0) return '<div style="' + base + 'rgba(245,158,11,.5);background:rgba(245,158,11,.12);color:#fbbf24">\u23F1\uFE0F faltam ' + dias + ' dia' + (dias === 1 ? '' : 's') + ' para o fechamento \u00b7 ' + venc + '</div>';
+  return '<div style="' + base + 'rgba(239,68,68,.5);background:rgba(239,68,68,.10);color:#f87171">\u23F0 prazo de fechamento venceu h\u00e1 ' + (-dias) + ' dia' + ((-dias) === 1 ? '' : 's') + ' \u2014 acerte com a CEO</div>';
+}
+
 async function renderPortalKits() {
   var v = $('#portal-kits'); if(!v) return;
   try {
@@ -3335,6 +3351,7 @@ async function renderPortalKits() {
       html += '<div class="kit-card" style="margin-bottom:16px">' +
         '<span class="pill">'+esc((kit.status||'').replace(/_/g,' '))+'</span>' +
         '<h3>Ciclo '+(kit.cycle_number!=null?kit.cycle_number:'?')+' · Kit #'+kit.id+'</h3>' +
+        portalPrazoChip(kit) +
         '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">'+kit.items.length+' produtos · '+kitUnits+' un em mãos · valor em mãos <b style="color:var(--ac)">R$ '+(kitValue/100).toFixed(2)+'</b></div>' +
         (emConf ? '<div style="font-size:12px;color:#ffa500;margin-bottom:10px">⏳ em conferência com a CEO — você ainda pode lançar venda deste ciclo</div>' : '');
       kit.items.forEach(function(item) {
