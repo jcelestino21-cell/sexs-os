@@ -1195,6 +1195,9 @@ router.get('/api/portal/kits/:id', requireReseller((req, res, params) => {
   // Filtrar dados: revendedora só vê nome, quantidade e preço de venda
   const filteredKit = {
     ...kit,
+    // Valor total do kit (tudo que foi entregue, nao so o que segue em maos): calculado aqui
+    // com as linhas completas para nao precisar expor quantity_delivered ao portal.
+    total_value_cents: kit.items.reduce((s, i) => s + (i.unit_sale_price_cents || 0) * (i.quantity_delivered || 0), 0),
     items: kit.items.map(item => ({
       id: item.id,
       product_name: item.product_name,

@@ -3353,6 +3353,7 @@ async function renderPortalKits() {
         '<h3>Ciclo '+(kit.cycle_number!=null?kit.cycle_number:'?')+' · Kit #'+kit.id+'</h3>' +
         portalPrazoChip(kit) +
         '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">'+kit.items.length+' produtos · '+kitUnits+' un em mãos · valor em mãos <b style="color:var(--ac)">R$ '+(kitValue/100).toFixed(2)+'</b></div>' +
+        '<div style="font-size:12px;color:var(--t3);margin-bottom:10px">valor total do kit <b style="color:var(--ac)">R$ ' + ((kit.total_value_cents||0)/100).toFixed(2) + '</b> <span style="color:var(--t3);font-size:11px">(tudo que você recebeu neste ciclo)</span></div>' +
         (emConf ? '<div style="font-size:12px;color:#ffa500;margin-bottom:10px">⏳ em conferência com a CEO — você ainda pode lançar venda deste ciclo</div>' : '');
       kit.items.forEach(function(item) {
         // A CEO pediu: item com saldo zero e venda registrada mostra VENDIDO, não "(0 un)".
